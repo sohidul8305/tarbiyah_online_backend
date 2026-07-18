@@ -21,6 +21,12 @@ const client = new MongoClient(uri, {
   },
 });
 
+// রুটস (এখনো তৈরি করিনি, কিন্তু পরে যোগ করব)
+app.use("/api/auth", require("./routes/authRoutes"));
+app.use("/api/courses", require("./routes/courseRoutes"));
+app.use("/api/assignments", require("./routes/assignmentRoutes"));
+app.use("/api/quizzes", require("./routes/quizRoutes"));
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -39,14 +45,13 @@ async function run() {
       "Pinged your deployment. You successfully connected to MongoDB!",
     );
   } finally {
-    // Ensures that the client will close when you finish/error
     // await client.close();
   }
 }
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("tarbiyah online running!");
+  res.send("🕌 Tarabiyah API is running!");
 });
 
 app.listen(port, () => {
