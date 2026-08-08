@@ -1,32 +1,50 @@
+// backend/models/User.js
 const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
 
-const userSchema = new mongoose.Schema(
+const UserSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, "নাম দেওয়া আবশ্যক"],
-      trim: true,
+      required: true,
     },
     email: {
       type: String,
-      required: [true, "ইমেইল দেওয়া আবশ্যক"],
+      default: "",
+    },
+    phone: {
+      type: String,
+      required: true,
       unique: true,
-      lowercase: true,
-      match: [/^\S+@\S+\.\S+$/, "সঠিক ইমেইল দিন"],
     },
     password: {
       type: String,
-      required: [true, "পাসওয়ার্ড দেওয়া আবশ্যক"],
-      minlength: 6,
-      select: false, // কুয়েরি করলে পাসওয়ার্ড দেখাবে না
+      required: true,
     },
     role: {
       type: String,
       enum: ["student", "teacher", "admin"],
       default: "student",
     },
-    // স্টুডেন্টের জন্য বিশেষ ফিল্ড
+    class: {
+      type: String,
+      default: "",
+    },
+    roll: {
+      type: String,
+      default: "",
+    },
+    address: {
+      type: String,
+      default: "",
+    },
+    guardianName: {
+      type: String,
+      default: "",
+    },
+    guardianPhone: {
+      type: String,
+      default: "",
+    },
     enrolledCourses: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -57,35 +75,18 @@ const userSchema = new mongoose.Schema(
         ],
       },
     ],
-    // টিচারের জন্য বিশেষ ফিল্ড
-    createdCourses: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Course",
-      },
-    ],
-    // পাসওয়ার্ড রিসেটের জন্য (ভবিষ্যতে কাজে লাগবে)
-    resetPasswordToken: String,
-    resetPasswordExpire: Date,
+    admissionDate: {
+      type: Date,
+      default: Date.now,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
   {
-    timestamps: true, // createdAt, updatedAt অটো অ্যাড হবে
+    timestamps: true,
   },
 );
 
-// পাসওয়ার্ড সেভ হওয়ার আগে হ্যাশ করা
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) {
-    return next();
-  }
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
-
-// পাসওয়ার্ড মিলানোর মেথড
-userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
-};
-
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model("User", UserSchema);

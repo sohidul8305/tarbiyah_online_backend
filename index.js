@@ -1,59 +1,132 @@
+// backend/index.js
 const express = require("express");
 const cors = require("cors");
-const app = express();
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
 
-const port = process.env.PORT || 5000;
+const app = express();
+const PORT = process.env.PORT || 5000;
 
-// midleware
+// Middleware
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+  }),
+);
 
-const uri = `mongodb+srv://${process.env.BD_USER}:${process.env.BD_PASS}@cluster0.hz6ypdj.mongodb.net/?appName=Cluster0`;
+// Import Database Connection
+const { connectDB, getDB, closeDB } = require("./config/db");
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
-});
+// Import Routes
+const authRoutes = require("./routes/authRoutes");
+const courseRoutes = require("./routes/courseRoutes");
+const assignmentRoutes = require("./routes/assignmentRoutes");
+const quizRoutes = require("./routes/quizRoutes");
+const lessonRoutes = require("./routes/lessonRoutes");
+const teacherRoutes = require("./routes/teacherRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const studentRoutes = require("./routes/studentRoutes");
 
-// রুটস (এখনো তৈরি করিনি, কিন্তু পরে যোগ করব)
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/courses", require("./routes/courseRoutes"));
-app.use("/api/assignments", require("./routes/assignmentRoutes"));
-app.use("/api/quizzes", require("./routes/quizRoutes"));
+// Import Middleware
+const { errorHandler } = require("./middleware/errorHandler");
 
-async function run() {
-  try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-
-    // const db = client.connect("tarbiyah_online_madrasha");
-    // const CourseCollection = db.collection("course");
-
-    //course api
-    // app.get("/course", async (req, res) => {
-
-    // });
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
-  } finally {
-    // await client.close();
-  }
-}
-run().catch(console.dir);
-
+// ===================== Routes =====================
 app.get("/", (req, res) => {
-  res.send("🕌 Tarabiyah API is running!");
+  res.json({
+    message: "🕌 Tarabiyah API is running!",
+    version: "1.0.0",
+    endpoints: {
+      health: "/api/health",
+      auth: "/api/auth",
+      courses: "/api/courses",
+      assignments: "/api/assignments",
+      quizzes: "/api/quizzes",
+      lessons: "/api/lessons",
+      teacher: "/api/teacher",
+      student: "/api/student",
+      admin: "/api/admin",
+    },
+  });
 });
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+// Health Check
+app.get("/api/health", async (req, res) => {
+  try {
+    const db = getDB();
+    await db.command({ ping: 1 });
+    res.json({
+      status: "healthy",
+      database: "connected",
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "unhealthy",
+      database: "disconnected",
+      error: error.message,
+    });
+  }
+});
+
+// ===================== API Routes =====================
+app.use("/api/auth", authRoutes);
+app.use("/api/courses", courseRoutes);
+app.use("/api/assignments", assignmentRoutes);
+app.use("/api/quizzes", quizRoutes);
+app.use("/api/lessons", lessonRoutes);
+app.use("/api/teacher", teacherRoutes);
+app.use("/api/student", studentRoutes);
+app.use("/api/admin", adminRoutes);
+
+// ===================== Error Handler =====================
+app.use(errorHandler);
+
+// ===================== Start Server =====================
+const startServer = async () => {
+  try {
+    // First connect to MongoDB
+    console.log("⏳ Connecting to MongoDB...");
+    await connectDB();
+
+    // Then start the server
+    app.listen(PORT, () => {
+      console.log(`\n🚀 Server running on port ${PORT}`);
+      console.log(`📍 API URL: http://localhost:${PORT}`);
+      console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
+      console.log(`\n📚 Available Routes:`);
+      console.log(`   POST   /api/auth/register`);
+      console.log(`   POST   /api/auth/login`);
+      console.log(`   GET    /api/courses`);
+      console.log(`   GET    /api/assignments`);
+      console.log(`   GET    /api/quizzes`);
+      console.log(`   GET    /api/lessons\n`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error.message);
+    console.log("\n💡 Please check:");
+    console.log("1. MongoDB Atlas credentials in .env file");
+    console.log("2. Network Access in MongoDB Atlas (whitelist 0.0.0.0/0)");
+    console.log("3. Your internet connection");
+    console.log("4. Check if cluster is active\n");
+    process.exit(1);
+  }
+};
+
+startServer();
+
+// ===================== Graceful Shutdown =====================
+process.on("SIGINT", async () => {
+  console.log("\n🔄 Shutting down gracefully...");
+  await closeDB();
+  console.log("✅ Server closed");
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("\n🔄 Shutting down gracefully...");
+  await closeDB();
+  console.log("✅ Server closed");
+  process.exit(0);
 });

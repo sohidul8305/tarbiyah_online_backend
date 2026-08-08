@@ -1,58 +1,71 @@
 const jwt = require("jsonwebtoken");
-const User = require("../models/User");
+const { getCollection } = require("../config/db");
 
-// প্রোটেক্ট মিডলওয়্যার - লগইন চেক করে
-exports.protect = async (req, res, next) => {
-  let token;
-
-  // হেডার থেকে টোকেন নিন
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
-  ) {
-    token = req.headers.authorization.split(" ")[1];
-  }
-
-  // টোকেন না থাকলে
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: "আপনি লগইন করেননি। অনুগ্রহ করে লগইন করুন।",
-    });
-  }
-
+const protect = async (req, res, next) => {
   try {
-    // টোকেন ভেরিফাই করুন
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    let token;
 
-    // ইউজার খুঁজে বের করুন (পাসওয়ার্ড বাদ দিয়ে)
-    req.user = await User.findById(decoded.id).select("-password");
+    // Check Authorization header
+    if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith("Bearer")
+    ) {
+      token = req.headers.authorization.split(" ")[1];
+    }
 
-    if (!req.user) {
+    if (!token) {
       return res.status(401).json({
         success: false,
-        message: "এই টোকেনের জন্য ইউজার পাওয়া যায়নি।",
+        message: "Not authorized, no token",
       });
     }
 
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Get user from database
+    const usersCollection = getCollection("users");
+    const user = await usersCollection.findOne(
+      { _id: decoded.id },
+      { projection: { password: 0 } }, // Password বাদ দিন
+    );
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    req.user = user;
     next();
   } catch (error) {
+    console.error("Auth middleware error:", error);
     return res.status(401).json({
       success: false,
-      message: "টোকেন সঠিক নয় বা মেয়াদ শেষ হয়ে গেছে।",
+      message: "Not authorized, invalid token",
     });
   }
 };
 
-// রোল বেসড অ্যাক্সেস কন্ট্রোল
-exports.authorize = (...roles) => {
+// Role based authorization
+const authorize = (...roles) => {
   return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
-        message: `আপনার রোল (${req.user.role}) এই কাজটি করতে পারবেন না।`,
+        message: `Role ${req.user.role} is not authorized to access this route`,
       });
     }
     next();
   };
 };
+
+module.exports = { protect, authorize };
