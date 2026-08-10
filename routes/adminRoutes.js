@@ -1,63 +1,35 @@
+// backend/routes/adminRoutes.js
 const express = require("express");
 const router = express.Router();
-const { protect, authorize } = require("../middleware/auth");
+const bcrypt = require("bcryptjs");
 const { getCollection } = require("../config/db");
-const { ObjectId } = require("mongodb");
+const { protect, authorize } = require("../middleware/auth");
 
-// All admin routes require authentication and admin role
-router.use(protect);
-router.use(authorize("admin"));
-
-// @desc    Admin dashboard stats
-// @route   GET /api/admin/dashboard
-router.get("/dashboard", async (req, res) => {
+// =============================================
+// Get All Students (Admin only)
+// =============================================
+router.get("/students/all", protect, authorize("admin"), async (req, res) => {
   try {
     const usersCollection = getCollection("users");
-    const coursesCollection = getCollection("courses");
-    const assignmentsCollection = getCollection("assignments");
-    const quizzesCollection = getCollection("quizzes");
 
-    const [totalUsers, totalCourses, totalAssignments, totalQuizzes] =
-      await Promise.all([
-        usersCollection.countDocuments(),
-        coursesCollection.countDocuments(),
-        assignmentsCollection.countDocuments(),
-        quizzesCollection.countDocuments(),
-      ]);
-
-    res.json({
-      success: true,
-      stats: {
-        totalUsers,
-        totalCourses,
-        totalAssignments,
-        totalQuizzes,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
-
-// @desc    Get all users
-// @route   GET /api/admin/users
-router.get("/users", async (req, res) => {
-  try {
-    const usersCollection = getCollection("users");
-    const users = await usersCollection
-      .find({}, { projection: { password: 0 } })
+    // Get all students
+    const students = await usersCollection
+      .find({ role: "student" })
       .sort({ createdAt: -1 })
       .toArray();
 
-    res.json({
+    // Remove passwords
+    const sanitizedStudents = students.map((s) => {
+      delete s.password;
+      return s;
+    });
+
+    res.status(200).json({
       success: true,
-      count: users.length,
-      users,
+      students: sanitizedStudents,
     });
   } catch (error) {
+    console.error("❌ Error fetching students:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -65,207 +37,145 @@ router.get("/users", async (req, res) => {
   }
 });
 
-// @desc    Get single user
-// @route   GET /api/admin/users/:id
-router.get("/users/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const usersCollection = getCollection("users");
+// =============================================
+// Approve Student (Admin only)
+// =============================================
+router.put(
+  "/students/approve/:id",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { username, password, roll } = req.body;
 
-    const user = await usersCollection.findOne(
-      { _id: new ObjectId(id) },
-      { projection: { password: 0 } },
-    );
+      if (!username || !password || !roll) {
+        return res.status(400).json({
+          success: false,
+          message: "Username, password and roll number are required!",
+        });
+      }
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
+      const usersCollection = getCollection("users");
 
-    res.json({
-      success: true,
-      user,
-    });
-  } catch (error) {
-    if (error.name === "BSONError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user ID format",
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
+      // Check if username already exists
+      const existingUser = await usersCollection.findOne({ username });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "এই ইউজারনেম ইতিমধ্যে ব্যবহার করা হচ্ছে!",
+        });
+      }
 
-// @desc    Update user role
-// @route   PUT /api/admin/users/:id/role
-router.put("/users/:id/role", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { role } = req.body;
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
 
-    if (!role || !["student", "teacher", "admin"].includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a valid role (student, teacher, admin)",
-      });
-    }
-
-    const usersCollection = getCollection("users");
-
-    const result = await usersCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          role,
-          updatedAt: new Date(),
+      // Update student
+      const result = await usersCollection.updateOne(
+        { _id: id, role: "student" },
+        {
+          $set: {
+            username: username,
+            password: hashedPassword,
+            roll: roll,
+            status: "Active",
+            approvedAt: new Date(),
+          },
         },
-      },
-    );
+      );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({
+      if (result.matchedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Student not found!",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Student approved successfully!",
+      });
+    } catch (error) {
+      console.error("❌ Approve Error:", error);
+      res.status(500).json({
         success: false,
-        message: "User not found",
+        message: error.message,
       });
     }
+  },
+);
 
-    res.json({
-      success: true,
-      message: "User role updated successfully",
-    });
-  } catch (error) {
-    if (error.name === "BSONError") {
-      return res.status(400).json({
+// =============================================
+// Delete Student (Admin only)
+// =============================================
+router.delete(
+  "/students/delete/:id",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const usersCollection = getCollection("users");
+
+      const result = await usersCollection.deleteOne({
+        _id: id,
+        role: "student",
+      });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Student not found!",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Student deleted successfully!",
+      });
+    } catch (error) {
+      console.error("❌ Delete Error:", error);
+      res.status(500).json({
         success: false,
-        message: "Invalid user ID format",
+        message: error.message,
       });
     }
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
+  },
+);
 
-// @desc    Toggle user active status
-// @route   PUT /api/admin/users/:id/toggle-active
-router.put("/users/:id/toggle-active", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const usersCollection = getCollection("users");
+// =============================================
+// Get Pending Students (Admin only)
+// =============================================
+router.get(
+  "/students/pending",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const usersCollection = getCollection("users");
+      const pendingStudents = await usersCollection
+        .find({ role: "student", status: "Pending" })
+        .sort({ createdAt: -1 })
+        .toArray();
 
-    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+      const sanitized = pendingStudents.map((s) => {
+        delete s.password;
+        return s;
+      });
 
-    if (!user) {
-      return res.status(404).json({
+      res.status(200).json({
+        success: true,
+        students: sanitized,
+      });
+    } catch (error) {
+      console.error("❌ Error:", error);
+      res.status(500).json({
         success: false,
-        message: "User not found",
+        message: error.message,
       });
     }
-
-    const newStatus = !user.isActive;
-
-    await usersCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          isActive: newStatus,
-          updatedAt: new Date(),
-        },
-      },
-    );
-
-    res.json({
-      success: true,
-      message: `User ${newStatus ? "activated" : "deactivated"} successfully`,
-      isActive: newStatus,
-    });
-  } catch (error) {
-    if (error.name === "BSONError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user ID format",
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
-
-// @desc    Get all courses (admin view)
-// @route   GET /api/admin/courses
-router.get("/courses", async (req, res) => {
-  try {
-    const coursesCollection = getCollection("courses");
-    const courses = await coursesCollection
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    res.json({
-      success: true,
-      count: courses.length,
-      courses,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
-
-// @desc    Approve course
-// @route   PUT /api/admin/courses/:id/approve
-router.put("/courses/:id/approve", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const coursesCollection = getCollection("courses");
-
-    const course = await coursesCollection.findOne({ _id: new ObjectId(id) });
-
-    if (!course) {
-      return res.status(404).json({
-        success: false,
-        message: "Course not found",
-      });
-    }
-
-    await coursesCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          isApproved: true,
-          isPublished: true,
-          updatedAt: new Date(),
-        },
-      },
-    );
-
-    res.json({
-      success: true,
-      message: "Course approved and published successfully",
-    });
-  } catch (error) {
-    if (error.name === "BSONError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid course ID format",
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
+  },
+);
 
 module.exports = router;

@@ -86,11 +86,9 @@ app.use(errorHandler);
 // ===================== Start Server =====================
 const startServer = async () => {
   try {
-    // First connect to MongoDB
     console.log("⏳ Connecting to MongoDB...");
     await connectDB();
 
-    // Then start the server
     app.listen(PORT, () => {
       console.log(`\n🚀 Server running on port ${PORT}`);
       console.log(`📍 API URL: http://localhost:${PORT}`);
@@ -98,6 +96,7 @@ const startServer = async () => {
       console.log(`\n📚 Available Routes:`);
       console.log(`   POST   /api/auth/register`);
       console.log(`   POST   /api/auth/login`);
+      console.log(`   POST   /api/auth/student/login`);
       console.log(`   GET    /api/courses`);
       console.log(`   GET    /api/assignments`);
       console.log(`   GET    /api/quizzes`);
