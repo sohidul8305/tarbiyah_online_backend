@@ -63,9 +63,9 @@ app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
 
-// ===================== Frontend Static Integration =====================
-const rootPath = path.resolve(__dirname, ".."); // Serve static files directly from root domain folder where index.html and assets are located
-app.use(express.static(rootPath)); // Fallback route for SPA (Single Page Application)
+// ==================== Frontend Static Integration ====================
+const rootPath = "/www/wwwroot/tarbiyahonline.com";
+app.use(express.static(rootPath));
 
 app.get(/^(?!\/api).*/, (req, res) => {
   const indexPath = path.join(rootPath, "index.html");
