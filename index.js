@@ -1,6 +1,8 @@
 // backend/index.js
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -30,25 +32,6 @@ const studentRoutes = require("./routes/studentRoutes");
 
 // Import Middleware
 const { errorHandler } = require("./middleware/errorHandler");
-
-// ===================== Routes =====================
-app.get("/", (req, res) => {
-  res.json({
-    message: "🕌 Tarabiyah API is running!",
-    version: "1.0.0",
-    endpoints: {
-      health: "/api/health",
-      auth: "/api/auth",
-      courses: "/api/courses",
-      assignments: "/api/assignments",
-      quizzes: "/api/quizzes",
-      lessons: "/api/lessons",
-      teacher: "/api/teacher",
-      student: "/api/student",
-      admin: "/api/admin",
-    },
-  });
-});
 
 // Health Check
 app.get("/api/health", async (req, res) => {
@@ -80,6 +63,20 @@ app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
 
+// ===================== Frontend Static Integration =====================
+const rootPath = path.resolve(__dirname, ".."); // Serve static files directly from root domain folder where index.html and assets are located
+app.use(express.static(rootPath)); // Fallback route for SPA (Single Page Application)
+
+app.get(/^(?!\/api).*/, (req, res) => {
+  const indexPath = path.join(rootPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  } else {
+    return res
+      .status(404)
+      .send("Frontend index.html file not found on server!");
+  }
+});
 // ===================== Error Handler =====================
 app.use(errorHandler);
 
@@ -94,13 +91,13 @@ const startServer = async () => {
       console.log(`📍 API URL: http://localhost:${PORT}`);
       console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
       console.log(`\n📚 Available Routes:`);
-      console.log(`   POST   /api/auth/register`);
-      console.log(`   POST   /api/auth/login`);
-      console.log(`   POST   /api/auth/student/login`);
-      console.log(`   GET    /api/courses`);
-      console.log(`   GET    /api/assignments`);
-      console.log(`   GET    /api/quizzes`);
-      console.log(`   GET    /api/lessons\n`);
+      console.log(`   POST    /api/auth/register`);
+      console.log(`   POST    /api/auth/login`);
+      console.log(`   POST    /api/auth/student/login`);
+      console.log(`   GET     /api/courses`);
+      console.log(`   GET     /api/assignments`);
+      console.log(`   GET     /api/quizzes`);
+      console.log(`   GET     /api/lessons\n`);
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
@@ -115,7 +112,7 @@ const startServer = async () => {
 
 startServer();
 
-// ===================== Graceful Shutdown =====================
+// ===================== Graceful Shutdown ===================
 process.on("SIGINT", async () => {
   console.log("\n🔄 Shutting down gracefully...");
   await closeDB();

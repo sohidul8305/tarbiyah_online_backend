@@ -326,13 +326,14 @@ router.post("/login/student", async (req, res) => {
       { expiresIn: "7d" },
     );
 
-    delete user.password;
+    const userObj = { ...user };
+    delete userObj.password;
 
     res.status(200).json({
       success: true,
       message: "Login successful!",
       token,
-      user,
+      user: userObj,
     });
   } catch (error) {
     console.error("❌ Login Error:", error);
@@ -410,13 +411,14 @@ router.post("/student/login", async (req, res) => {
       { expiresIn: "7d" },
     );
 
-    delete user.password;
+    const userObj = { ...user };
+    delete userObj.password;
 
     res.status(200).json({
       success: true,
       message: "Login successful!",
       token,
-      user,
+      user: userObj,
     });
   } catch (error) {
     console.error("❌ Login Error:", error);
