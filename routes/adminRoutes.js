@@ -1,22 +1,39 @@
-// backend/routes/adminRoutes.js
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
+const { ObjectId } = require("mongodb");
 const { getCollection } = require("../config/db");
 const { protect, authorize } = require("../middleware/auth");
 
 // =============================================
-// Get All Students (Admin only)
+// ✅ GET ALL STUDENTS (Admin only)
 // =============================================
 router.get("/students/all", protect, authorize("admin"), async (req, res) => {
   try {
-    const usersCollection = getCollection("users");
+    console.log("========================================");
+    console.log("🔍 GET ALL STUDENTS REQUEST");
+    console.log("👤 Admin ID:", req.user?.id);
 
-    // Get all students
-    const students = await usersCollection
-      .find({ role: "student" })
+    // ✅ Get students collection
+    const studentsCollection = getCollection("students");
+    console.log("✅ Connected to students collection");
+
+    // ✅ Get ALL students
+    const students = await studentsCollection
+      .find({})
       .sort({ createdAt: -1 })
       .toArray();
+
+    console.log(`✅ Found ${students.length} students in students collection`);
+
+    // Log first student if exists
+    if (students.length > 0) {
+      console.log("📝 First student:", {
+        name: students[0].name,
+        phone: students[0].phone,
+        status: students[0].status,
+      });
+    }
 
     // Remove passwords
     const sanitizedStudents = students.map((s) => {
@@ -24,12 +41,15 @@ router.get("/students/all", protect, authorize("admin"), async (req, res) => {
       return s;
     });
 
+    console.log("========================================");
+
     res.status(200).json({
       success: true,
       students: sanitizedStudents,
     });
   } catch (error) {
     console.error("❌ Error fetching students:", error);
+    console.error("Error stack:", error.stack);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -38,7 +58,7 @@ router.get("/students/all", protect, authorize("admin"), async (req, res) => {
 });
 
 // =============================================
-// Approve Student (Admin only)
+// ✅ APPROVE STUDENT (Admin only)
 // =============================================
 router.put(
   "/students/approve/:id",
@@ -49,6 +69,12 @@ router.put(
       const { id } = req.params;
       const { username, password, roll } = req.body;
 
+      console.log("========================================");
+      console.log("✅ APPROVE STUDENT REQUEST");
+      console.log(`📝 Student ID: ${id}`);
+      console.log(`📝 Username: ${username}`);
+      console.log(`📝 Roll: ${roll}`);
+
       if (!username || !password || !roll) {
         return res.status(400).json({
           success: false,
@@ -56,11 +82,32 @@ router.put(
         });
       }
 
-      const usersCollection = getCollection("users");
+      // ✅ Get students collection
+      const studentsCollection = getCollection("students");
+
+      // Check if student exists
+      const student = await studentsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!student) {
+        console.log("❌ Student not found in students collection");
+        return res.status(404).json({
+          success: false,
+          message: "Student not found!",
+        });
+      }
+
+      console.log(`📝 Student found: ${student.name}`);
 
       // Check if username already exists
-      const existingUser = await usersCollection.findOne({ username });
+      const existingUser = await studentsCollection.findOne({
+        username: username,
+        _id: { $ne: new ObjectId(id) },
+      });
+
       if (existingUser) {
+        console.log("❌ Username already exists");
         return res.status(400).json({
           success: false,
           message: "এই ইউজারনেম ইতিমধ্যে ব্যবহার করা হচ্ছে!",
@@ -72,8 +119,8 @@ router.put(
       const hashedPassword = await bcrypt.hash(password, salt);
 
       // Update student
-      const result = await usersCollection.updateOne(
-        { _id: id, role: "student" },
+      const result = await studentsCollection.updateOne(
+        { _id: new ObjectId(id) },
         {
           $set: {
             username: username,
@@ -81,16 +128,21 @@ router.put(
             roll: roll,
             status: "Active",
             approvedAt: new Date(),
+            updatedAt: new Date(),
           },
         },
       );
 
       if (result.matchedCount === 0) {
+        console.log("❌ Update failed - student not found");
         return res.status(404).json({
           success: false,
           message: "Student not found!",
         });
       }
+
+      console.log(`✅ Student ${student.name} approved successfully`);
+      console.log("========================================");
 
       res.status(200).json({
         success: true,
@@ -107,7 +159,7 @@ router.put(
 );
 
 // =============================================
-// Delete Student (Admin only)
+// ✅ DELETE STUDENT (Admin only)
 // =============================================
 router.delete(
   "/students/delete/:id",
@@ -116,11 +168,12 @@ router.delete(
   async (req, res) => {
     try {
       const { id } = req.params;
-      const usersCollection = getCollection("users");
+      const studentsCollection = getCollection("students");
 
-      const result = await usersCollection.deleteOne({
-        _id: id,
-        role: "student",
+      console.log(`🗑️ Deleting student: ${id}`);
+
+      const result = await studentsCollection.deleteOne({
+        _id: new ObjectId(id),
       });
 
       if (result.deletedCount === 0) {
@@ -130,46 +183,14 @@ router.delete(
         });
       }
 
+      console.log(`✅ Student deleted successfully`);
+
       res.status(200).json({
         success: true,
         message: "Student deleted successfully!",
       });
     } catch (error) {
       console.error("❌ Delete Error:", error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-);
-
-// =============================================
-// Get Pending Students (Admin only)
-// =============================================
-router.get(
-  "/students/pending",
-  protect,
-  authorize("admin"),
-  async (req, res) => {
-    try {
-      const usersCollection = getCollection("users");
-      const pendingStudents = await usersCollection
-        .find({ role: "student", status: "Pending" })
-        .sort({ createdAt: -1 })
-        .toArray();
-
-      const sanitized = pendingStudents.map((s) => {
-        delete s.password;
-        return s;
-      });
-
-      res.status(200).json({
-        success: true,
-        students: sanitized,
-      });
-    } catch (error) {
-      console.error("❌ Error:", error);
       res.status(500).json({
         success: false,
         message: error.message,

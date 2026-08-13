@@ -1,4 +1,3 @@
-// backend/routes/authRoutes.js
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
@@ -6,177 +5,13 @@ const jwt = require("jsonwebtoken");
 const { getCollection } = require("../config/db");
 
 // =============================================
-// Generate OTP
-// =============================================
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// Store OTP temporarily
-let otpStore = {};
-
-// =============================================
-// SEND OTP
-// =============================================
-router.post("/send-otp", async (req, res) => {
-  try {
-    console.log("========================================");
-    console.log("📱 SEND OTP Request Received");
-    console.log("📝 Request Body:", req.body);
-
-    const { phone } = req.body;
-    console.log("📱 Phone Number:", phone);
-
-    if (!phone) {
-      console.log("❌ Phone number is missing");
-      return res.status(400).json({
-        success: false,
-        message: "ফোন নম্বর আবশ্যক!",
-      });
-    }
-
-    const usersCollection = getCollection("users");
-    const user = await usersCollection.findOne({ phone });
-    console.log("👤 User found:", user ? "Yes" : "No");
-
-    if (!user) {
-      console.log("❌ User not found for phone:", phone);
-      return res.status(404).json({
-        success: false,
-        message: "এই ফোন নম্বরটি রেজিস্টার করা নেই!",
-      });
-    }
-
-    const otp = generateOTP();
-    console.log("🔑 Generated OTP:", otp);
-
-    otpStore[phone] = {
-      otp: otp,
-      expiresAt: Date.now() + 300000,
-    };
-
-    console.log("========================================");
-    console.log(`✅ OTP for ${phone}: ${otp}`);
-    console.log(`⏰ Expires in: 5 minutes`);
-    console.log("========================================");
-
-    res.status(200).json({
-      success: true,
-      message: "OTP sent successfully to your phone!",
-      otp: otp,
-    });
-  } catch (error) {
-    console.error("❌ OTP Send Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "OTP পাঠানো সম্ভব হয়নি!",
-    });
-  }
-});
-
-// =============================================
-// VERIFY OTP
-// =============================================
-router.post("/verify-otp", async (req, res) => {
-  try {
-    console.log("========================================");
-    console.log("🔍 VERIFY OTP Request Received");
-    console.log("📝 Request Body:", req.body);
-
-    const { phone, otp } = req.body;
-    console.log("📱 Phone:", phone);
-    console.log("🔑 OTP:", otp);
-
-    if (!phone || !otp) {
-      console.log("❌ Phone or OTP missing");
-      return res.status(400).json({
-        success: false,
-        message: "ফোন নম্বর এবং OTP আবশ্যক!",
-      });
-    }
-
-    const storedData = otpStore[phone];
-    console.log("📦 Stored Data:", storedData);
-
-    if (!storedData) {
-      console.log("❌ OTP not found for phone:", phone);
-      return res.status(400).json({
-        success: false,
-        message: "OTP পাওয়া যায়নি! নতুন OTP রিকোয়েস্ট করুন।",
-      });
-    }
-
-    const currentTime = Date.now();
-    if (currentTime > storedData.expiresAt) {
-      console.log("❌ OTP Expired");
-      delete otpStore[phone];
-      return res.status(400).json({
-        success: false,
-        message: "OTP এর মেয়াদ শেষ! নতুন OTP রিকোয়েস্ট করুন।",
-      });
-    }
-
-    if (storedData.otp !== otp) {
-      console.log("❌ OTP Mismatch");
-      return res.status(400).json({
-        success: false,
-        message: "ভুল OTP! আবার চেষ্টা করুন।",
-      });
-    }
-
-    console.log("✅ OTP Verified Successfully");
-
-    const usersCollection = getCollection("users");
-    const user = await usersCollection.findOne(
-      { phone },
-      { projection: { password: 0 } },
-    );
-
-    if (!user) {
-      console.log("❌ User not found after OTP verification");
-      return res.status(404).json({
-        success: false,
-        message: "User not found!",
-      });
-    }
-
-    delete otpStore[phone];
-    console.log("🗑️ OTP Removed from Store");
-
-    const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || "mysecretkey",
-      { expiresIn: "7d" },
-    );
-
-    console.log("✅ Login Successful!");
-    console.log("========================================");
-
-    res.status(200).json({
-      success: true,
-      message: "OTP verified successfully!",
-      token: token,
-      user: user,
-    });
-  } catch (error) {
-    console.error("❌ OTP Verify Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "OTP ভেরিফাই করা সম্ভব হয়নি!",
-    });
-  }
-});
-
-// =============================================
-// Student Registration
+// ✅ STUDENT REGISTRATION (Separate Collection)
 // =============================================
 router.post("/register/student", async (req, res) => {
   try {
-    console.log("📝 Registration Request Received:", {
-      name: req.body.name,
-      email: req.body.email,
-      phone: req.body.phone,
-    });
+    console.log("========================================");
+    console.log("📝 STUDENT REGISTRATION REQUEST");
+    console.log("📦 Request Body:", req.body);
 
     const {
       name,
@@ -189,81 +24,120 @@ router.post("/register/student", async (req, res) => {
       guardianPhone,
     } = req.body;
 
-    if (!name || !phone || !password) {
+    // ✅ Validate required fields
+    if (!name || !phone || !password || !className) {
+      console.log("❌ Missing required fields");
       return res.status(400).json({
         success: false,
-        message: "নাম, ফোন নম্বর এবং পাসওয়ার্ড আবশ্যক!",
+        message: "নাম, ফোন নম্বর, পাসওয়ার্ড এবং ক্লাস আবশ্যক!",
       });
     }
 
-    const usersCollection = getCollection("users");
-
-    const existingUser = await usersCollection.findOne({
-      $or: [{ email: email || "" }, { phone }],
-    });
-
-    if (existingUser) {
+    if (password.length < 6) {
       return res.status(400).json({
         success: false,
-        message: "এই ইমেইল বা ফোন নম্বর ইতিমধ্যে রেজিস্টার করা আছে!",
+        message: "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!",
       });
     }
 
+    if (phone.length < 11) {
+      return res.status(400).json({
+        success: false,
+        message: "ফোন নম্বরটি ১১ ডিজিটের হতে হবে!",
+      });
+    }
+
+    // ✅ Get MongoDB Collections
+    const studentsCollection = getCollection("students"); // ✅ আলাদা collection
+    console.log("✅ Connected to students collection");
+
+    // ✅ Check if phone already exists
+    const existingPhone = await studentsCollection.findOne({ phone });
+    if (existingPhone) {
+      console.log("❌ Phone already exists:", phone);
+      return res.status(400).json({
+        success: false,
+        message: "এই ফোন নম্বরটি ইতিমধ্যে রেজিস্টার করা আছে!",
+      });
+    }
+
+    // ✅ Check if email exists (if provided)
+    if (email) {
+      const existingEmail = await studentsCollection.findOne({ email });
+      if (existingEmail) {
+        console.log("❌ Email already exists:", email);
+        return res.status(400).json({
+          success: false,
+          message: "এই ইমেইলটি ইতিমধ্যে ব্যবহার করা হচ্ছে!",
+        });
+      }
+    }
+
+    // ✅ Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = {
-      name,
-      email: email || "",
-      phone,
+    // ✅ Create student document
+    const newStudent = {
+      name: name.trim(),
+      email: email ? email.trim() : "",
+      phone: phone.trim(),
       password: hashedPassword,
-      role: "student",
-      status: "Pending",
-      class: className || "",
+      status: "Pending", // ✅ Admin needs to approve
+      class: className.trim(),
       roll: "",
-      address: address || "",
-      guardianName: guardianName || "",
-      guardianPhone: guardianPhone || "",
+      username: "", // ✅ Admin will set username
+      address: address ? address.trim() : "",
+      guardianName: guardianName ? guardianName.trim() : "",
+      guardianPhone: guardianPhone ? guardianPhone.trim() : "",
       enrolledCourses: [],
       progress: [],
       admissionDate: new Date(),
+      approvedAt: null,
       createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
-    const result = await usersCollection.insertOne(newUser);
-    console.log("✅ Student Registered:", {
-      id: result.insertedId,
-      phone,
-      name,
-    });
+    console.log("📝 Creating student document:");
+    console.log("   - Name:", newStudent.name);
+    console.log("   - Phone:", newStudent.phone);
+    console.log("   - Class:", newStudent.class);
+    console.log("   - Status:", newStudent.status);
 
-    const token = jwt.sign(
-      { id: result.insertedId, email: email || phone, role: "student" },
-      process.env.JWT_SECRET || "mysecretkey",
-      { expiresIn: "7d" },
+    // ✅ Insert into students collection
+    const result = await studentsCollection.insertOne(newStudent);
+    console.log("✅ Student inserted with ID:", result.insertedId);
+
+    // ✅ Verify insertion
+    const insertedStudent = await studentsCollection.findOne(
+      { _id: result.insertedId },
+      { projection: { password: 0 } },
     );
 
-    delete newUser.password;
-
-    res.status(201).json({
-      success: true,
-      message: "Student registered successfully!",
-      token,
-      user: {
-        id: result.insertedId,
-        ...newUser,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Registration Error:", error);
-
-    if (error.name === "MongoServerError" && error.code === 11000) {
-      return res.status(400).json({
+    if (insertedStudent) {
+      console.log("✅ Student found in students collection:");
+      console.log("   - ID:", insertedStudent._id);
+      console.log("   - Name:", insertedStudent.name);
+      console.log("   - Status:", insertedStudent.status);
+    } else {
+      console.log("❌ Student NOT found after insertion!");
+      return res.status(500).json({
         success: false,
-        message: "এই ফোন নম্বর বা ইমেইল ইতিমধ্যে রেজিস্টার করা আছে!",
+        message: "Student registration failed! Please try again.",
       });
     }
 
+    console.log("✅ Registration successful!");
+    console.log("========================================");
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Registration successful! Waiting for admin approval.",
+      user: insertedStudent,
+    });
+  } catch (error) {
+    console.error("❌ Registration Error:", error);
+    console.error("Error Details:", error.stack);
     res.status(500).json({
       success: false,
       message: error.message || "রেজিস্ট্রেশন ব্যর্থ! আবার চেষ্টা করুন।",
@@ -272,86 +146,13 @@ router.post("/register/student", async (req, res) => {
 });
 
 // =============================================
-// Student Login with Phone
-// =============================================
-router.post("/login/student", async (req, res) => {
-  try {
-    console.log("🔑 Login Request Received:", { phone: req.body.phone });
-
-    const { phone, password } = req.body;
-
-    if (!phone || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "ফোন নম্বর এবং পাসওয়ার্ড আবশ্যক!",
-      });
-    }
-
-    const usersCollection = getCollection("users");
-    const user = await usersCollection.findOne({ phone });
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "এই ফোন নম্বরটি রেজিস্টার করা নেই!",
-      });
-    }
-
-    if (user.role !== "student") {
-      return res.status(403).json({
-        success: false,
-        message: "এই অ্যাকাউন্টটি স্টুডেন্ট অ্যাকাউন্ট নয়!",
-      });
-    }
-
-    if (user.status === "Pending") {
-      return res.status(403).json({
-        success: false,
-        message:
-          "আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি! অ্যাডমিনের সাথে যোগাযোগ করুন।",
-      });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: "ভুল পাসওয়ার্ড!",
-      });
-    }
-
-    const token = jwt.sign(
-      { id: user._id, email: user.email, role: "student" },
-      process.env.JWT_SECRET || "mysecretkey",
-      { expiresIn: "7d" },
-    );
-
-    const userObj = { ...user };
-    delete userObj.password;
-
-    res.status(200).json({
-      success: true,
-      message: "Login successful!",
-      token,
-      user: userObj,
-    });
-  } catch (error) {
-    console.error("❌ Login Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "লগইন ব্যর্থ! আবার চেষ্টা করুন।",
-    });
-  }
-});
-
-// =============================================
-// Student Login with Username (Admin created)
+// ✅ STUDENT LOGIN WITH USERNAME
 // =============================================
 router.post("/student/login", async (req, res) => {
   try {
-    console.log("🔑 Student Login with Username:", {
-      username: req.body.username,
-    });
+    console.log("========================================");
+    console.log("🔑 STUDENT LOGIN REQUEST");
+    console.log("📝 Username:", req.body.username);
 
     const { username, password } = req.body;
 
@@ -362,103 +163,71 @@ router.post("/student/login", async (req, res) => {
       });
     }
 
-    const usersCollection = getCollection("users");
+    // ✅ Get students collection
+    const studentsCollection = getCollection("students");
 
-    const user = await usersCollection.findOne({
-      $or: [{ username: username }, { phone: username }],
+    // Find student by username
+    const student = await studentsCollection.findOne({
+      username: username,
     });
 
-    if (!user) {
+    if (!student) {
+      console.log("❌ Student not found with username:", username);
       return res.status(401).json({
         success: false,
-        message: "ভুল ইউজারনেম বা পাসওয়ার্ড!",
+        message: "❌ ভুল ইউজারনেম বা পাসওয়ার্ড!",
       });
     }
 
-    if (user.role !== "student") {
+    console.log("✅ Student found:", student.name);
+
+    // Check status
+    if (student.status === "Pending") {
+      console.log("❌ Account pending approval");
       return res.status(403).json({
         success: false,
-        message: "এই অ্যাকাউন্টটি স্টুডেন্ট অ্যাকাউন্ট নয়!",
+        message: "⏳ আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি!",
       });
     }
 
-    if (user.status === "Pending") {
-      return res.status(403).json({
-        success: false,
-        message:
-          "আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি! অ্যাডমিনের সাথে যোগাযোগ করুন।",
-      });
-    }
-
-    if (user.status === "Inactive") {
-      return res.status(403).json({
-        success: false,
-        message: "আপনার অ্যাকাউন্ট নিষ্ক্রিয়! অ্যাডমিনের সাথে যোগাযোগ করুন।",
-      });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, student.password);
     if (!isPasswordValid) {
+      console.log("❌ Invalid password");
       return res.status(401).json({
         success: false,
-        message: "ভুল ইউজারনেম বা পাসওয়ার্ড!",
+        message: "❌ ভুল ইউজারনেম বা পাসওয়ার্ড!",
       });
     }
 
+    // Generate token
     const token = jwt.sign(
-      { id: user._id, email: user.email, role: "student" },
+      {
+        id: student._id,
+        email: student.email,
+        role: "student",
+        username: student.username,
+      },
       process.env.JWT_SECRET || "mysecretkey",
       { expiresIn: "7d" },
     );
 
-    const userObj = { ...user };
-    delete userObj.password;
+    const { password: _, ...studentWithoutPassword } = student;
+
+    console.log("✅ Login successful for:", student.username);
+    console.log("========================================");
 
     res.status(200).json({
       success: true,
-      message: "Login successful!",
+      message: "✅ Login successful!",
       token,
-      user: userObj,
+      user: studentWithoutPassword,
     });
   } catch (error) {
     console.error("❌ Login Error:", error);
     res.status(500).json({
       success: false,
-      message: error.message || "লগইন ব্যর্থ! আবার চেষ্টা করুন।",
-    });
-  }
-});
-
-// =============================================
-// Get Student Profile
-// =============================================
-router.get("/student/profile/:phone", async (req, res) => {
-  try {
-    const { phone } = req.params;
-    console.log("📱 Fetching Profile for:", phone);
-
-    const usersCollection = getCollection("users");
-    const user = await usersCollection.findOne(
-      { phone, role: "student" },
-      { projection: { password: 0 } },
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "Student not found!",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      user,
-    });
-  } catch (error) {
-    console.error("❌ Profile Fetch Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "প্রোফাইল লোড করতে ব্যর্থ!",
+      message: error.message || "লগইন ব্যর্থ!",
     });
   }
 });
