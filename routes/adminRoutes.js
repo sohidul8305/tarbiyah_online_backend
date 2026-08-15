@@ -6,13 +6,14 @@ const { getCollection } = require("../config/db");
 const { protect, authorize } = require("../middleware/auth");
 
 // =============================================
-// ✅ GET ALL STUDENTS (Admin only)
+// ✅ GET ALL STUDENTS (Admin only) - Debug
 // =============================================
 router.get("/students/all", protect, authorize("admin"), async (req, res) => {
   try {
     console.log("========================================");
     console.log("🔍 GET ALL STUDENTS REQUEST");
     console.log("👤 Admin ID:", req.user?.id);
+    console.log("👤 Admin Email:", req.user?.email);
 
     // ✅ Get students collection
     const studentsCollection = getCollection("students");
@@ -26,13 +27,19 @@ router.get("/students/all", protect, authorize("admin"), async (req, res) => {
 
     console.log(`✅ Found ${students.length} students in students collection`);
 
-    // Log first student if exists
+    // Log all students
     if (students.length > 0) {
-      console.log("📝 First student:", {
-        name: students[0].name,
-        phone: students[0].phone,
-        status: students[0].status,
+      students.forEach((student, index) => {
+        console.log(`📝 Student ${index + 1}:`, {
+          id: student._id,
+          name: student.name,
+          phone: student.phone,
+          status: student.status,
+          class: student.class,
+        });
       });
+    } else {
+      console.log("⚠️ No students found in students collection!");
     }
 
     // Remove passwords
@@ -45,6 +52,7 @@ router.get("/students/all", protect, authorize("admin"), async (req, res) => {
 
     res.status(200).json({
       success: true,
+      total: students.length,
       students: sanitizedStudents,
     });
   } catch (error) {
@@ -53,6 +61,7 @@ router.get("/students/all", protect, authorize("admin"), async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
+      error: error.stack,
     });
   }
 });

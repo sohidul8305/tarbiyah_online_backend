@@ -5,7 +5,7 @@ const jwt = require("jsonwebtoken");
 const { getCollection } = require("../config/db");
 
 // =============================================
-// ✅ STUDENT REGISTRATION (Separate Collection)
+// ✅ STUDENT REGISTRATION - FIXED
 // =============================================
 router.post("/register/student", async (req, res) => {
   try {
@@ -47,8 +47,8 @@ router.post("/register/student", async (req, res) => {
       });
     }
 
-    // ✅ Get MongoDB Collections
-    const studentsCollection = getCollection("students"); // ✅ আলাদা collection
+    // ✅ Get students collection
+    const studentsCollection = getCollection("students");
     console.log("✅ Connected to students collection");
 
     // ✅ Check if phone already exists
@@ -77,16 +77,16 @@ router.post("/register/student", async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // ✅ Create student document
+    // ✅ Create student document - FIXED: username = null instead of empty string
     const newStudent = {
       name: name.trim(),
       email: email ? email.trim() : "",
       phone: phone.trim(),
       password: hashedPassword,
-      status: "Pending", // ✅ Admin needs to approve
+      status: "Pending",
       class: className.trim(),
-      roll: "",
-      username: "", // ✅ Admin will set username
+      roll: "", // ✅ Keep as empty string
+      username: null, // ✅ IMPORTANT: Use null instead of empty string
       address: address ? address.trim() : "",
       guardianName: guardianName ? guardianName.trim() : "",
       guardianPhone: guardianPhone ? guardianPhone.trim() : "",
@@ -103,6 +103,7 @@ router.post("/register/student", async (req, res) => {
     console.log("   - Phone:", newStudent.phone);
     console.log("   - Class:", newStudent.class);
     console.log("   - Status:", newStudent.status);
+    console.log("   - Username:", newStudent.username); // ✅ Will show null
 
     // ✅ Insert into students collection
     const result = await studentsCollection.insertOne(newStudent);
@@ -118,6 +119,7 @@ router.post("/register/student", async (req, res) => {
       console.log("✅ Student found in students collection:");
       console.log("   - ID:", insertedStudent._id);
       console.log("   - Name:", insertedStudent.name);
+      console.log("   - Phone:", insertedStudent.phone);
       console.log("   - Status:", insertedStudent.status);
     } else {
       console.log("❌ Student NOT found after insertion!");
@@ -130,6 +132,7 @@ router.post("/register/student", async (req, res) => {
     console.log("✅ Registration successful!");
     console.log("========================================");
 
+    // ✅ Send success response
     res.status(201).json({
       success: true,
       message: "✅ Registration successful! Waiting for admin approval.",
@@ -138,6 +141,16 @@ router.post("/register/student", async (req, res) => {
   } catch (error) {
     console.error("❌ Registration Error:", error);
     console.error("Error Details:", error.stack);
+
+    // ✅ Handle duplicate key error
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0] || "unknown";
+      return res.status(400).json({
+        success: false,
+        message: `এই ${field} ইতিমধ্যে ব্যবহার করা হচ্ছে!`,
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || "রেজিস্ট্রেশন ব্যর্থ! আবার চেষ্টা করুন।",
@@ -146,88 +159,32 @@ router.post("/register/student", async (req, res) => {
 });
 
 // =============================================
-// ✅ STUDENT LOGIN WITH USERNAME
+// ✅ GET ALL STUDENTS (For testing)
 // =============================================
-router.post("/student/login", async (req, res) => {
+router.get("/students/all", async (req, res) => {
   try {
-    console.log("========================================");
-    console.log("🔑 STUDENT LOGIN REQUEST");
-    console.log("📝 Username:", req.body.username);
+    console.log("🔍 GET ALL STUDENTS (Testing)");
 
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "ইউজারনেম এবং পাসওয়ার্ড আবশ্যক!",
-      });
-    }
-
-    // ✅ Get students collection
     const studentsCollection = getCollection("students");
+    const students = await studentsCollection.find({}).toArray();
 
-    // Find student by username
-    const student = await studentsCollection.findOne({
-      username: username,
+    console.log(`✅ Found ${students.length} students`);
+
+    const sanitized = students.map((s) => {
+      delete s.password;
+      return s;
     });
-
-    if (!student) {
-      console.log("❌ Student not found with username:", username);
-      return res.status(401).json({
-        success: false,
-        message: "❌ ভুল ইউজারনেম বা পাসওয়ার্ড!",
-      });
-    }
-
-    console.log("✅ Student found:", student.name);
-
-    // Check status
-    if (student.status === "Pending") {
-      console.log("❌ Account pending approval");
-      return res.status(403).json({
-        success: false,
-        message: "⏳ আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি!",
-      });
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, student.password);
-    if (!isPasswordValid) {
-      console.log("❌ Invalid password");
-      return res.status(401).json({
-        success: false,
-        message: "❌ ভুল ইউজারনেম বা পাসওয়ার্ড!",
-      });
-    }
-
-    // Generate token
-    const token = jwt.sign(
-      {
-        id: student._id,
-        email: student.email,
-        role: "student",
-        username: student.username,
-      },
-      process.env.JWT_SECRET || "mysecretkey",
-      { expiresIn: "7d" },
-    );
-
-    const { password: _, ...studentWithoutPassword } = student;
-
-    console.log("✅ Login successful for:", student.username);
-    console.log("========================================");
 
     res.status(200).json({
       success: true,
-      message: "✅ Login successful!",
-      token,
-      user: studentWithoutPassword,
+      count: students.length,
+      students: sanitized,
     });
   } catch (error) {
-    console.error("❌ Login Error:", error);
+    console.error("❌ Error:", error);
     res.status(500).json({
       success: false,
-      message: error.message || "লগইন ব্যর্থ!",
+      message: error.message,
     });
   }
 });
