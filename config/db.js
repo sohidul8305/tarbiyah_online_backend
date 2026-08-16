@@ -1,3 +1,4 @@
+// backend/config/db.js
 const { MongoClient, ServerApiVersion } = require("mongodb");
 require("dotenv").config();
 
@@ -66,11 +67,38 @@ const connectDB = async () => {
     // ✅ Create collections if they don't exist
     await ensureCollections(db);
 
+    // ✅ Check if students collection has data
+    try {
+      const studentsCollection = db.collection("students");
+      const count = await studentsCollection.countDocuments();
+      console.log(`📊 Total students in collection: ${count}`);
+
+      if (count === 0) {
+        console.log("⚠️ No students found in database!");
+        console.log(
+          "💡 Please register a student first or insert data manually.",
+        );
+        console.log(
+          "📝 Use: POST /api/students/add-test to add a test student",
+        );
+      } else {
+        // Show sample students
+        const sample = await studentsCollection.find({}).limit(3).toArray();
+        console.log("📝 Sample students:");
+        sample.forEach((s, i) => {
+          console.log(
+            `   ${i + 1}. ${s.name} - ${s.phone} - ${s.status || "Pending"}`,
+          );
+        });
+      }
+    } catch (err) {
+      console.error("❌ Error checking students:", err.message);
+    }
+
     return db;
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error.message);
     console.error("❌ Error Code:", error.code || "N/A");
-    console.error("❌ Error Details:", error);
 
     console.log("\n💡 Troubleshooting Tips:");
     console.log("1. ✅ Check MongoDB Atlas Network Access:");
@@ -127,65 +155,118 @@ const ensureCollections = async (database) => {
     }
 
     // ✅ Create indexes for students collection
-    const studentsCollection = database.collection("students");
-
     try {
-      await studentsCollection.createIndex({ phone: 1 }, { unique: true });
-      console.log("✅ Index created: students.phone (unique)");
-    } catch (err) {
-      if (err.code !== 85) {
-        // 85 = Index already exists
-        console.log(
-          `⚠️ Index creation warning (students.phone): ${err.message}`,
-        );
-      }
-    }
+      const studentsCollection = database.collection("students");
 
-    try {
-      await studentsCollection.createIndex(
-        { username: 1 },
-        { unique: true, sparse: true },
-      );
-      console.log("✅ Index created: students.username (unique, sparse)");
-    } catch (err) {
-      if (err.code !== 85) {
-        console.log(
-          `⚠️ Index creation warning (students.username): ${err.message}`,
-        );
+      // Check if students collection is empty
+      const count = await studentsCollection.countDocuments();
+      console.log(`📊 Students collection has ${count} documents`);
+
+      // Index: phone (unique)
+      try {
+        await studentsCollection.createIndex({ phone: 1 }, { unique: true });
+        console.log("✅ Index created: students.phone (unique)");
+      } catch (err) {
+        if (err.code === 85) {
+          console.log("ℹ️ Index already exists: students.phone");
+        } else {
+          console.log(
+            `⚠️ Index creation warning (students.phone): ${err.message}`,
+          );
+        }
       }
+
+      // Index: username (unique, sparse)
+      try {
+        await studentsCollection.createIndex(
+          { username: 1 },
+          { unique: true, sparse: true },
+        );
+        console.log("✅ Index created: students.username (unique, sparse)");
+      } catch (err) {
+        if (err.code === 85) {
+          console.log("ℹ️ Index already exists: students.username");
+        } else {
+          console.log(
+            `⚠️ Index creation warning (students.username): ${err.message}`,
+          );
+        }
+      }
+
+      // Index: status
+      try {
+        await studentsCollection.createIndex({ status: 1 });
+        console.log("✅ Index created: students.status");
+      } catch (err) {
+        if (err.code !== 85) {
+          console.log(
+            `⚠️ Index creation warning (students.status): ${err.message}`,
+          );
+        }
+      }
+
+      // Index: class
+      try {
+        await studentsCollection.createIndex({ class: 1 });
+        console.log("✅ Index created: students.class");
+      } catch (err) {
+        if (err.code !== 85) {
+          console.log(
+            `⚠️ Index creation warning (students.class): ${err.message}`,
+          );
+        }
+      }
+    } catch (err) {
+      console.log(`⚠️ Error setting up students indexes: ${err.message}`);
     }
 
     // ✅ Create indexes for users collection
-    const usersCollection = database.collection("users");
-
     try {
-      await usersCollection.createIndex({ email: 1 }, { unique: true });
-      console.log("✅ Index created: users.email (unique)");
-    } catch (err) {
-      if (err.code !== 85) {
-        console.log(`⚠️ Index creation warning (users.email): ${err.message}`);
-      }
-    }
+      const usersCollection = database.collection("users");
 
-    try {
-      await usersCollection.createIndex({ role: 1 });
-      console.log("✅ Index created: users.role");
-    } catch (err) {
-      if (err.code !== 85) {
-        console.log(`⚠️ Index creation warning (users.role): ${err.message}`);
+      try {
+        await usersCollection.createIndex({ email: 1 }, { unique: true });
+        console.log("✅ Index created: users.email (unique)");
+      } catch (err) {
+        if (err.code === 85) {
+          console.log("ℹ️ Index already exists: users.email");
+        } else {
+          console.log(
+            `⚠️ Index creation warning (users.email): ${err.message}`,
+          );
+        }
       }
+
+      try {
+        await usersCollection.createIndex({ role: 1 });
+        console.log("✅ Index created: users.role");
+      } catch (err) {
+        if (err.code !== 85) {
+          console.log(`⚠️ Index creation warning (users.role): ${err.message}`);
+        }
+      }
+    } catch (err) {
+      console.log(`⚠️ Error setting up users indexes: ${err.message}`);
     }
 
     // ✅ Create indexes for courses collection
-    const coursesCollection = database.collection("courses");
-
     try {
-      await coursesCollection.createIndex({ code: 1 }, { unique: true });
-      console.log("✅ Index created: courses.code (unique)");
-    } catch (err) {
-      if (err.code !== 85) {
-        console.log(`⚠️ Index creation warning (courses.code): ${err.message}`);
+      const coursesCollection = database.collection("courses");
+
+      try {
+        await coursesCollection.createIndex({ code: 1 }, { unique: true });
+        console.log("✅ Index created: courses.code (unique)");
+      } catch (err) {
+        if (err.code === 85) {
+          console.log("ℹ️ Index already exists: courses.code");
+        } else {
+          console.log(
+            `⚠️ Index creation warning (courses.code): ${err.message}`,
+          );
+        }
       }
+    } catch (err) {
+      console.log(`⚠️ Error setting up courses indexes: ${err.message}`);
     }
 
     console.log("✅ All collections and indexes are ready!");
@@ -206,8 +287,16 @@ const getDB = () => {
 
 // ✅ Get collection
 const getCollection = (collectionName) => {
-  const database = getDB();
-  return database.collection(collectionName);
+  try {
+    const database = getDB();
+    return database.collection(collectionName);
+  } catch (error) {
+    console.error(
+      `❌ Error getting collection '${collectionName}':`,
+      error.message,
+    );
+    throw error;
+  }
 };
 
 // ✅ Close database connection
@@ -234,7 +323,7 @@ const getConnectionStats = () => {
   return {
     isConnected: isConnected,
     databaseName: db ? db.databaseName : null,
-    isClientConnected: client ? client.isConnected() : false,
+    isClientConnected: client ? true : false,
     collections: db ? db.listCollections() : null,
   };
 };

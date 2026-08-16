@@ -1,45 +1,142 @@
 const express = require("express");
 const router = express.Router();
-const { protect, authorize } = require("../middleware/auth");
-const {
-  getStudentDashboard,
-  getMyCourses,
-  enrollCourse,
-  getCourseLessons,
-  completeLesson,
-  submitAssignment,
-  getMyAssignments,
-  getMySubmissions,
-  submitQuiz,
-  getMyQuizzes,
-  getProgress,
-} = require("../controllers/studentController");
+const { getCollection } = require("../config/db");
 
-// সব রাউটে লগইন এবং স্টুডেন্ট রোল চেক
-router.use(protect);
-router.use(authorize("student"));
+console.log("✅ Student routes loaded");
 
-// Dashboard
-router.get("/dashboard", getStudentDashboard);
+// =============================================
+// ✅ GET ALL STUDENTS (Public)
+// =============================================
+router.get("/all", async (req, res) => {
+  try {
+    console.log("📥 GET /api/students/all called");
 
-// Courses
-router.get("/courses", getMyCourses);
-router.post("/courses/:id/enroll", enrollCourse);
+    const studentsCollection = getCollection("students");
 
-// Lessons
-router.get("/courses/:courseId/lessons", getCourseLessons);
-router.put("/lessons/:id/complete", completeLesson);
+    if (!studentsCollection) {
+      console.error("❌ Students collection not found!");
+      return res.status(500).json({
+        success: false,
+        message: "Database collection not found!",
+      });
+    }
 
-// Assignments
-router.get("/assignments", getMyAssignments);
-router.post("/assignments/:id/submit", submitAssignment);
-router.get("/submissions", getMySubmissions);
+    // Get all students
+    const students = await studentsCollection
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
 
-// Quizzes
-router.get("/quizzes", getMyQuizzes);
-router.post("/quizzes/:id/submit", submitQuiz);
+    console.log(`✅ Found ${students.length} students`);
 
-// Progress
-router.get("/progress", getProgress);
+    // Remove password field
+    const sanitizedStudents = students.map((s) => {
+      const { password, ...rest } = s;
+      return rest;
+    });
+
+    res.status(200).json({
+      success: true,
+      total: students.length,
+      students: sanitizedStudents,
+    });
+  } catch (error) {
+    console.error("❌ Error in /all:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      stack: error.stack,
+    });
+  }
+});
+
+// =============================================
+// ✅ INSERT TEST STUDENT
+// =============================================
+router.post("/add-test", async (req, res) => {
+  try {
+    console.log("📥 POST /api/students/add-test called");
+
+    const studentsCollection = getCollection("students");
+
+    if (!studentsCollection) {
+      console.error("❌ Students collection not found!");
+      return res.status(500).json({
+        success: false,
+        message: "Database collection not found!",
+      });
+    }
+
+    const testStudent = {
+      name: "Test Student " + new Date().toLocaleTimeString(),
+      phone: "017" + Math.floor(Math.random() * 100000000),
+      email: "test" + Date.now() + "@test.com",
+      class: "Class 8",
+      guardianName: "Test Guardian",
+      guardianPhone: "017" + Math.floor(Math.random() * 100000000),
+      address: "Dhaka, Bangladesh",
+      status: "Pending",
+      roll: "",
+      username: "",
+      password: "",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await studentsCollection.insertOne(testStudent);
+
+    console.log("✅ Test student added:", result.insertedId);
+
+    res.status(201).json({
+      success: true,
+      message: "Test student added successfully!",
+      student: {
+        ...testStudent,
+        _id: result.insertedId,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error in /add-test:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// =============================================
+// ✅ GET SINGLE STUDENT
+// =============================================
+router.get("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ObjectId } = require("mongodb");
+    const studentsCollection = getCollection("students");
+
+    const student = await studentsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
+
+    delete student.password;
+
+    res.status(200).json({
+      success: true,
+      student,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
 
 module.exports = router;

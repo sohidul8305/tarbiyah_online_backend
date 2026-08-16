@@ -7,7 +7,7 @@ const { protect, authorize } = require("../middleware/auth");
 
 // =============================================
 // ✅ GET ALL STUDENTS (Admin only) - Debug
-// =============================================
+// ===========================================
 router.get("/students/all", protect, authorize("admin"), async (req, res) => {
   try {
     console.log("========================================");
@@ -48,7 +48,7 @@ router.get("/students/all", protect, authorize("admin"), async (req, res) => {
       return s;
     });
 
-    console.log("========================================");
+    console.log("======================================");
 
     res.status(200).json({
       success: true,
