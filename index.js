@@ -110,66 +110,113 @@ app.get("/api/students/all", async (req, res) => {
   }
 });
 
-// REGISTER STUDENT (Public)
-app.post("/api/students/register", async (req, res) => {
+// backend/index.js - এই route যোগ করুন
+
+// =============================================
+// ✅ STUDENT REGISTRATION WITH FULL DATA
+// =============================================
+// backend/index.js - register/student route আপডেট করুন
+
+app.post("/api/students/register/student", async (req, res) => {
   try {
-    console.log("📥 POST /api/students/register called");
+    console.log("📥 POST /api/students/register/student called");
     console.log("📝 Request body:", req.body);
 
     const {
       name,
-      phone,
       email,
-      class: className,
+      phone,
+      password,
+      course,
+      presentAddress,
+      permanentAddress,
+      dobOrNid,
       guardianName,
       guardianPhone,
-      address,
     } = req.body;
 
-    if (!name || !phone) {
+    // Validation
+    if (!name || !email || !phone || !password || !course) {
       return res.status(400).json({
         success: false,
-        message: "Name and phone are required!",
+        message: "নাম, ইমেইল, ফোন নম্বর, পাসওয়ার্ড এবং কোর্স আবশ্যক!",
+      });
+    }
+
+    if (phone.length < 11) {
+      return res.status(400).json({
+        success: false,
+        message: "ফোন নম্বরটি ১১ ডিজিটের হতে হবে!",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!",
       });
     }
 
     const studentsCollection = getCollection("students");
 
-    // Check if phone exists
-    const existing = await studentsCollection.findOne({ phone });
-    if (existing) {
+    // Check if phone or email exists
+    const existingStudent = await studentsCollection.findOne({
+      $or: [{ phone: phone }, { email: email }],
+    });
+
+    if (existingStudent) {
       return res.status(400).json({
         success: false,
-        message: "This phone number is already registered!",
+        message:
+          "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
       });
     }
 
+    // ✅ Create new student WITHOUT username field (or set to null)
     const newStudent = {
       name,
+      email,
       phone,
-      email: email || "",
-      class: className || "Not Assigned",
+      password,
+      course,
+      presentAddress: presentAddress || "",
+      permanentAddress: permanentAddress || "",
+      dobOrNid: dobOrNid || "",
       guardianName: guardianName || "",
       guardianPhone: guardianPhone || "",
-      address: address || "",
       status: "Pending",
       roll: "",
-      username: "",
-      password: "",
+      // username: null,  // ✅ Use null instead of empty string
+      // অথবা username field বাদ দিন
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
+    // ✅ যদি username field বাদ দেন, তাহলে এটা যোগ করবেন না
+    // শুধু প্রয়োজনীয় ফিল্ডগুলো রাখুন
+
     const result = await studentsCollection.insertOne(newStudent);
-    console.log("✅ Student registered:", result.insertedId);
+    console.log("✅ Student registered successfully:", result.insertedId);
 
     res.status(201).json({
       success: true,
-      message: "Student registered successfully!",
+      message:
+        "রেজিস্ট্রেশন সফল হয়েছে! অ্যাডমিন অ্যাপ্রুভ করার পর আপনি লগইন করতে পারবেন।",
+      studentId: result.insertedId,
       student: { ...newStudent, _id: result.insertedId },
     });
   } catch (error) {
-    console.error("❌ Error in /register:", error);
+    console.error("❌ Error in student registration:", error);
+
+    // ✅ Better error handling
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: error.message,
