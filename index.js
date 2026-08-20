@@ -33,7 +33,14 @@ const studentRoutes = require("./routes/studentRoutes");
 // Import Middleware
 const { errorHandler } = require("./middleware/errorHandler");
 
-// Health Check
+// =============================================
+// ✅ MONGODB OBJECT ID
+// =============================================
+const { ObjectId } = require("mongodb");
+
+// =============================================
+// ✅ HEALTH CHECK
+// =============================================
 app.get("/api/health", async (req, res) => {
   try {
     const db = getDB();
@@ -53,7 +60,9 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// ===================== Test Routes =====================
+// =============================================
+// ✅ TEST ROUTE
+// =============================================
 app.get("/api/test", (req, res) => {
   res.json({
     success: true,
@@ -63,11 +72,8 @@ app.get("/api/test", (req, res) => {
 });
 
 // =============================================
-// ✅ STUDENT ROUTES - Public (No Auth Required)
+// ✅ GET ALL STUDENTS (Public)
 // =============================================
-const { ObjectId } = require("mongodb");
-
-// GET ALL STUDENTS (Public)
 app.get("/api/students/all", async (req, res) => {
   try {
     console.log("📥 GET /api/students/all called");
@@ -75,7 +81,6 @@ app.get("/api/students/all", async (req, res) => {
     const studentsCollection = getCollection("students");
 
     if (!studentsCollection) {
-      console.error("❌ Students collection not found!");
       return res.status(500).json({
         success: false,
         message: "Database collection not found!",
@@ -89,7 +94,6 @@ app.get("/api/students/all", async (req, res) => {
 
     console.log(`✅ Found ${students.length} students`);
 
-    // Remove password field
     const sanitizedStudents = students.map((s) => {
       const { password, ...rest } = s;
       return rest;
@@ -105,18 +109,13 @@ app.get("/api/students/all", async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
-      stack: error.stack,
     });
   }
 });
 
-// backend/index.js - এই route যোগ করুন
-
 // =============================================
-// ✅ STUDENT REGISTRATION WITH FULL DATA
+// ✅ REGISTER STUDENT
 // =============================================
-// backend/index.js - register/student route আপডেট করুন
-
 app.post("/api/students/register/student", async (req, res) => {
   try {
     console.log("📥 POST /api/students/register/student called");
@@ -133,6 +132,20 @@ app.post("/api/students/register/student", async (req, res) => {
       dobOrNid,
       guardianName,
       guardianPhone,
+      fatherName,
+      motherName,
+      gender,
+      occupation,
+      maritalStatus,
+      age,
+      paymentMethod,
+      paymentType,
+      transactionId,
+      paidAmount,
+      paymentRemarks,
+      paymentStatus,
+      status = "Pending",
+      admissionDate,
     } = req.body;
 
     // Validation
@@ -150,16 +163,8 @@ app.post("/api/students/register/student", async (req, res) => {
       });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!",
-      });
-    }
-
     const studentsCollection = getCollection("students");
 
-    // Check if phone or email exists
     const existingStudent = await studentsCollection.findOne({
       $or: [{ phone: phone }, { email: email }],
     });
@@ -172,7 +177,6 @@ app.post("/api/students/register/student", async (req, res) => {
       });
     }
 
-    // ✅ Create new student WITHOUT username field (or set to null)
     const newStudent = {
       name,
       email,
@@ -182,18 +186,28 @@ app.post("/api/students/register/student", async (req, res) => {
       presentAddress: presentAddress || "",
       permanentAddress: permanentAddress || "",
       dobOrNid: dobOrNid || "",
-      guardianName: guardianName || "",
-      guardianPhone: guardianPhone || "",
-      status: "Pending",
+      guardianName: guardianName || fatherName || "",
+      guardianPhone: guardianPhone || phone,
+      fatherName: fatherName || "",
+      motherName: motherName || "",
+      gender: gender || "",
+      occupation: occupation || "",
+      maritalStatus: maritalStatus || "",
+      age: age || "",
+      paymentMethod: paymentMethod || "",
+      paymentType: paymentType || "",
+      transactionId: transactionId || "",
+      paidAmount: paidAmount || "",
+      paymentRemarks: paymentRemarks || "",
+      paymentStatus: paymentStatus || "Unpaid",
+      status: status || "Pending",
+      admissionDate: admissionDate || new Date().toISOString(),
+      username: "",
       roll: "",
-      // username: null,  // ✅ Use null instead of empty string
-      // অথবা username field বাদ দিন
+      approvedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-
-    // ✅ যদি username field বাদ দেন, তাহলে এটা যোগ করবেন না
-    // শুধু প্রয়োজনীয় ফিল্ডগুলো রাখুন
 
     const result = await studentsCollection.insertOne(newStudent);
     console.log("✅ Student registered successfully:", result.insertedId);
@@ -207,16 +221,6 @@ app.post("/api/students/register/student", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error in student registration:", error);
-
-    // ✅ Better error handling
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
-      });
-    }
-
     res.status(500).json({
       success: false,
       message: error.message,
@@ -224,50 +228,94 @@ app.post("/api/students/register/student", async (req, res) => {
   }
 });
 
-// ADD TEST STUDENT (Public)
-app.post("/api/students/add-test", async (req, res) => {
+// =============================================
+// ✅ APPROVE STUDENT - এই Route গুরুত্বপূর্ণ
+// =============================================
+app.put("/api/students/approve/:id", async (req, res) => {
   try {
-    console.log("📥 POST /api/students/add-test called");
+    console.log("📥 PUT /api/students/approve/:id called");
+    console.log("📝 ID:", req.params.id);
+    console.log("📝 Body:", req.body);
+
+    const { id } = req.params;
+    const { username, password } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Student ID is required!",
+      });
+    }
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Username and password are required!",
+      });
+    }
 
     const studentsCollection = getCollection("students");
 
     if (!studentsCollection) {
-      console.error("❌ Students collection not found!");
       return res.status(500).json({
         success: false,
         message: "Database collection not found!",
       });
     }
 
-    const testStudent = {
-      name: "Test Student " + new Date().toLocaleTimeString(),
-      phone: "017" + Math.floor(Math.random() * 100000000),
-      email: "test" + Date.now() + "@test.com",
-      class: "Class 8",
-      guardianName: "Test Guardian",
-      guardianPhone: "017" + Math.floor(Math.random() * 100000000),
-      address: "Dhaka, Bangladesh",
-      status: "Pending",
-      roll: "",
-      username: "",
-      password: "",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const student = await studentsCollection.findOne({
+      _id: new ObjectId(id),
+    });
 
-    const result = await studentsCollection.insertOne(testStudent);
-    console.log("✅ Test student added:", result.insertedId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
 
-    res.status(201).json({
-      success: true,
-      message: "Test student added successfully!",
-      student: {
-        ...testStudent,
-        _id: result.insertedId,
+    console.log(`📝 Student found: ${student.name}`);
+
+    const existingUser = await studentsCollection.findOne({
+      username: username,
+      _id: { $ne: new ObjectId(id) },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "এই ইউজারনেম ইতিমধ্যে ব্যবহার করা হচ্ছে!",
+      });
+    }
+
+    const result = await studentsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          username: username,
+          password: password,
+          status: "Active",
+          approvedAt: new Date(),
+          updatedAt: new Date(),
+        },
       },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
+
+    console.log(`✅ Student ${student.name} approved successfully`);
+
+    res.status(200).json({
+      success: true,
+      message: "Student approved successfully!",
     });
   } catch (error) {
-    console.error("❌ Error in /add-test:", error);
+    console.error("❌ Approve Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -275,7 +323,104 @@ app.post("/api/students/add-test", async (req, res) => {
   }
 });
 
-// GET SINGLE STUDENT (Public)
+// =============================================
+// ✅ STUDENT LOGIN
+// =============================================
+app.post("/api/students/login", async (req, res) => {
+  try {
+    console.log("📥 POST /api/students/login called");
+    console.log("📤 Received Body:", req.body);
+
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "ইউজারনেম এবং পাসওয়ার্ড আবশ্যক!",
+      });
+    }
+
+    const studentsCollection = getCollection("students");
+
+    if (!studentsCollection) {
+      return res.status(500).json({
+        success: false,
+        message: "Database collection not found!",
+      });
+    }
+
+    const student = await studentsCollection.findOne({
+      username: username,
+      status: "Active",
+    });
+
+    if (!student) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "ইউজারনেম বা পাসওয়ার্ড ভুল! অথবা আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি।",
+      });
+    }
+
+    if (student.password !== password) {
+      return res.status(401).json({
+        success: false,
+        message: "ইউজারনেম বা পাসওয়ার্ড ভুল!",
+      });
+    }
+
+    const { password: _, ...studentWithoutPassword } = student;
+
+    res.status(200).json({
+      success: true,
+      message: "লগইন সফল!",
+      user: studentWithoutPassword,
+      token: "student_" + Date.now() + "_" + student._id,
+    });
+  } catch (error) {
+    console.error("❌ Student Login Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// =============================================
+// ✅ DELETE STUDENT
+// =============================================
+app.delete("/api/students/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studentsCollection = getCollection("students");
+
+    const result = await studentsCollection.deleteOne({
+      _id: new ObjectId(id),
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Student deleted successfully!",
+    });
+  } catch (error) {
+    console.error("❌ Delete Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// =============================================
+// ✅ GET SINGLE STUDENT
+// =============================================
 app.get("/api/students/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -307,6 +452,130 @@ app.get("/api/students/:id", async (req, res) => {
   }
 });
 
+// backend/index.js - এই Route যোগ করুন
+
+// =============================================
+// ✅ GET STUDENT WITH PASSWORD (Admin Only)
+// =============================================
+app.get("/api/students/details/:id", async (req, res) => {
+  try {
+    console.log("📥 GET /api/students/details/:id called");
+    console.log("📝 ID:", req.params.id);
+
+    const { id } = req.params;
+    const studentsCollection = getCollection("students");
+
+    if (!studentsCollection) {
+      return res.status(500).json({
+        success: false,
+        message: "Database collection not found!",
+      });
+    }
+
+    const student = await studentsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
+
+    // ✅ সব ডেটা পাঠাচ্ছি (password সহ)
+    res.status(200).json({
+      success: true,
+      student: student,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// backend/index.js - এই Route যোগ করুন
+
+// =============================================
+// ✅ STUDENT LOGIN
+// =============================================
+// backend/index.js - Login Route
+
+// =============================================
+// ✅ STUDENT LOGIN
+// =============================================
+app.post("/api/students/login", async (req, res) => {
+  try {
+    console.log("📥 POST /api/students/login called");
+    console.log("📤 Received Body:", req.body);
+
+    const { username, password } = req.body;
+
+    // ✅ Validation
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "ইউজারনেম এবং পাসওয়ার্ড আবশ্যক!",
+      });
+    }
+
+    const studentsCollection = getCollection("students");
+
+    if (!studentsCollection) {
+      return res.status(500).json({
+        success: false,
+        message: "Database collection not found!",
+      });
+    }
+
+    // ✅ Username দিয়ে Student খুঁজুন (status Active)
+    const student = await studentsCollection.findOne({
+      username: username,
+      status: "Active",
+    });
+
+    console.log("📝 Student found:", student ? student.name : "Not found");
+
+    if (!student) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "ইউজারনেম বা পাসওয়ার্ড ভুল! অথবা আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি।",
+      });
+    }
+
+    // ✅ Password চেক করুন
+    if (student.password !== password) {
+      console.log("❌ Password mismatch");
+      return res.status(401).json({
+        success: false,
+        message: "ইউজারনেম বা পাসওয়ার্ড ভুল!",
+      });
+    }
+
+    // ✅ Remove password from response
+    const { password: _, ...studentWithoutPassword } = student;
+
+    console.log(`✅ Student ${student.name} logged in successfully`);
+
+    res.status(200).json({
+      success: true,
+      message: "লগইন সফল!",
+      user: studentWithoutPassword,
+      token: "student_" + Date.now() + "_" + student._id,
+    });
+  } catch (error) {
+    console.error("❌ Student Login Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 // =============================================
 // ✅ API Routes
 // =============================================
@@ -319,73 +588,43 @@ app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
 
-// ===================== Error Handler =====================
+// =============================================
+// ✅ ERROR HANDLER
+// =============================================
 app.use(errorHandler);
 
-// ===================== Start Server =====================
+// =============================================
+// ✅ START SERVER
+// =============================================
 const startServer = async () => {
   try {
     console.log("⏳ Connecting to MongoDB...");
     await connectDB();
 
-    // Check students collection after connection
-    try {
-      const studentsCollection = getCollection("students");
-      const count = await studentsCollection.countDocuments();
-      console.log(`📊 Total students in collection: ${count}`);
-
-      if (count === 0) {
-        console.log("⚠️ No students found in database!");
-        console.log(
-          "💡 Please register a student first or insert data manually.",
-        );
-        console.log(
-          "📝 Use: POST /api/students/add-test to add a test student",
-        );
-      } else {
-        const sample = await studentsCollection.find({}).limit(3).toArray();
-        console.log(
-          "📝 Sample students:",
-          sample.map((s) => ({ name: s.name, phone: s.phone })),
-        );
-      }
-    } catch (err) {
-      console.error("❌ Error checking students:", err);
-    }
-
     app.listen(PORT, () => {
       console.log(`\n🚀 Server running on port ${PORT}`);
       console.log(`📍 API URL: http://localhost:${PORT}`);
-      console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
       console.log(`🧪 Test: http://localhost:${PORT}/api/test`);
-      console.log(`\n📚 Student Routes (Public - No Auth Required):`);
+      console.log(`\n📚 Student Routes (No Auth Required):`);
       console.log(`   GET  http://localhost:${PORT}/api/students/all`);
-      console.log(`   POST http://localhost:${PORT}/api/students/register`);
-      console.log(`   POST http://localhost:${PORT}/api/students/add-test`);
-      console.log(`   GET  http://localhost:${PORT}/api/students/:id`);
-      console.log(`\n📚 Other Routes:`);
-      console.log(`   POST /api/auth/register`);
-      console.log(`   POST /api/auth/login`);
-      console.log(`   POST /api/auth/student/login`);
-      console.log(`   GET  /api/courses`);
-      console.log(`   GET  /api/assignments`);
-      console.log(`   GET  /api/quizzes`);
-      console.log(`   GET  /api/lessons\n`);
+      console.log(`   PUT  http://localhost:${PORT}/api/students/approve/:id`);
+      console.log(`   POST http://localhost:${PORT}/api/students/login`);
+      console.log(
+        `   POST http://localhost:${PORT}/api/students/register/student`,
+      );
+      console.log(`\n`);
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
-    console.log("\n💡 Please check:");
-    console.log("1. MongoDB Atlas credentials in .env file");
-    console.log("2. Network Access in MongoDB Atlas (whitelist 0.0.0.0/0)");
-    console.log("3. Your internet connection");
-    console.log("4. Check if cluster is active\n");
     process.exit(1);
   }
 };
 
 startServer();
 
-// ===================== Graceful Shutdown ===================
+// =============================================
+// ✅ GRACEFUL SHUTDOWN
+// =============================================
 process.on("SIGINT", async () => {
   console.log("\n🔄 Shutting down gracefully...");
   await closeDB();

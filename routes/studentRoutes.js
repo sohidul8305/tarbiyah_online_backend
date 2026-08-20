@@ -271,6 +271,11 @@ router.put("/approve/:id", async (req, res) => {
 // =============================================
 // ✅ STUDENT LOGIN (Public - No Token)
 // =============================================
+// routes/studentRoutes.js - Login Route
+
+// =============================================
+// ✅ STUDENT LOGIN
+// =============================================
 router.post("/login", async (req, res) => {
   try {
     console.log("📥 POST /api/students/login called");
@@ -294,10 +299,13 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // ✅ Username এবং Status Active চেক করুন
     const student = await studentsCollection.findOne({
       username: username,
       status: "Active",
     });
+
+    console.log("📝 Student found:", student ? student.name : "Not found");
 
     if (!student) {
       return res.status(401).json({
@@ -307,6 +315,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // ✅ Password চেক করুন
     if (student.password !== password) {
       return res.status(401).json({
         success: false,
@@ -314,6 +323,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // ✅ Remove password from response
     const { password: _, ...studentWithoutPassword } = student;
 
     res.status(200).json({
