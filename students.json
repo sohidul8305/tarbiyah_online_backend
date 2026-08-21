@@ -1,0 +1,36 @@
+{
+  "students": [
+    {
+      "_id": "1787302495499",
+      "name": "Sohel",
+      "email": "sohel@gmail.com",
+      "phone": " 01540659004",
+      "password": "student123S@",
+      "course": "Alimiyah for Kids, Alimiyah Program",
+      "fatherName": "Mokbul",
+      "motherName": "",
+      "guardianName": "Mokbul",
+      "guardianPhone": "01944709984",
+      "presentAddress": "Dhaka",
+      "permanentAddress": "Chnadpur",
+      "dobOrNid": "01253654865",
+      "gender": "male",
+      "occupation": "",
+      "maritalStatus": "single",
+      "age": 25,
+      "paymentMethod": "nagod",
+      "paymentType": "online",
+      "transactionId": "jig5rf",
+      "paidAmount": "28000",
+      "paymentRemarks": "",
+      "paymentStatus": "Paid",
+      "status": "Active",
+      "admissionDate": "2026-08-21T08:54:55.479Z",
+      "username": "sohel123",
+      "roll": "",
+      "approvedAt": "2026-08-21T08:56:05.472Z",
+      "createdAt": "2026-08-21T08:54:55.499Z",
+      "updatedAt": "2026-08-21T08:56:05.472Z"
+    }
+  ]
+}

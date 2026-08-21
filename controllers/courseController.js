@@ -1,97 +1,72 @@
-// controllers/courseController.js
+// routes/courseRoutes.js
+const express = require("express");
+const router = express.Router();
 
-const Course = require("../models/Course");
-const User = require("../models/User");
+// ✅ সব route সরাসরি index.js এ আছে
+// এখানে শুধু error message দিচ্ছি
 
-// ✅ Create Course - with better error handling
-exports.createCourse = async (req, res) => {
-  try {
-    console.log("📥 POST /api/courses/create called");
-    console.log("📝 Request Body:", req.body);
+router.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Use /api/courses/teacher/:teacherId to get courses",
+    routes: {
+      create: "POST /api/courses/create",
+      getTeacherCourses: "GET /api/courses/teacher/:teacherId",
+      getStats: "GET /api/courses/stats/:teacherId",
+      update: "PUT /api/courses/update/:id",
+      delete: "DELETE /api/courses/delete/:id",
+    },
+  });
+});
 
-    const {
-      title,
-      code,
-      description,
-      category,
-      department,
-      className,
-      teacher,
-      duration,
-      status,
-      startDate,
-      endDate,
-      schedule,
-    } = req.body;
+router.get("/:id", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Use /api/courses/teacher/:teacherId to get courses",
+  });
+});
 
-    // Validation
-    if (!title || !code || !className || !startDate) {
-      return res.status(400).json({
-        success: false,
-        message: "শিরোনাম, কোড, ক্লাস এবং শুরুর তারিখ আবশ্যক!",
-      });
-    }
+router.post("/create", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Use POST /api/courses/create directly",
+  });
+});
 
-    // Check if Course model is working
-    console.log("🔍 Checking Course model...");
+router.put("/update/:id", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Use PUT /api/courses/update/:id directly",
+  });
+});
 
-    // Check duplicate code with try-catch
-    try {
-      const existingCourse = await Course.findOne({ code });
-      if (existingCourse) {
-        return res.status(400).json({
-          success: false,
-          message: "এই কোডটি ইতিমধ্যে ব্যবহার করা হচ্ছে!",
-        });
-      }
-    } catch (findError) {
-      console.error("❌ FindOne Error:", findError);
-      // যদি findOne fail করে, তবুও proceed করুন
-      console.log("⚠️ Could not check duplicate, proceeding anyway...");
-    }
+router.delete("/delete/:id", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Use DELETE /api/courses/delete/:id directly",
+  });
+});
 
-    console.log("📝 Creating course...");
+router.post("/:id/enroll", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Enroll functionality not implemented",
+  });
+});
 
-    const courseData = {
-      title,
-      code,
-      description: description || "",
-      category: category || "Islamic Studies",
-      department: department || "Islamic Studies",
-      className,
-      teacher: teacher || "Ustadh Ahmad",
-      teacherId: req.user ? req.user.id : null,
-      duration: duration || "",
-      status: status || "Draft",
-      startDate,
-      endDate: endDate || "",
-      schedule: schedule || "",
-      students: 0,
-      progress: 0,
-      videos: 0,
-      assignments: 0,
-      quizzes: 0,
-      materials: 0,
-      sessions: 0,
-      enrolledStudents: [],
-      isPublished: status === "Active" ? true : false,
-    };
+// Teacher routes - সরাসরি index.js এ আছে
+router.get("/teacher/:teacherId", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Use GET /api/courses/teacher/:teacherId directly",
+  });
+});
 
-    const course = await Course.create(courseData);
-    console.log("✅ Course created successfully:", course._id);
+router.get("/stats/:teacherId", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Use GET /api/courses/stats/:teacherId directly",
+  });
+});
 
-    res.status(201).json({
-      success: true,
-      message: "কোর্স তৈরি হয়েছে!",
-      course,
-    });
-  } catch (error) {
-    console.error("❌ Create Course Error:", error);
-    console.error("❌ Error Stack:", error.stack);
-    res.status(500).json({
-      success: false,
-      message: error.message || "কোর্স তৈরি করতে ব্যর্থ হয়েছে!",
-      error: process.env.NODE_ENV === "development" ? error.stack : undefined,
-    });
-  }
-};
+module.exports = router;

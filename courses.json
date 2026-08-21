@@ -47,6 +47,30 @@
       "sessions": 0,
       "createdAt": "2026-08-21T08:47:56.059Z",
       "updatedAt": "2026-08-21T08:47:56.059Z"
+    },
+    {
+      "_id": "1787308727808",
+      "title": "Elders",
+      "code": "kgvre5",
+      "description": "",
+      "category": "Tarbiyah Quran Studies",
+      "department": "Tarbiyah Quran Studies",
+      "className": "Quran_najera",
+      "teacher": "শায়খ ড. মাওলানা মুহাম্মদ আব্দুল্লাহ",
+      "duration": "05",
+      "status": "Active",
+      "startDate": "0220-05-05",
+      "endDate": "0555-05-02",
+      "schedule": "09:00AM",
+      "students": 0,
+      "progress": 0,
+      "videos": 0,
+      "assignments": 0,
+      "quizzes": 0,
+      "materials": 0,
+      "sessions": 0,
+      "createdAt": "2026-08-21T10:38:47.808Z",
+      "updatedAt": "2026-08-21T10:38:47.808Z"
     }
   ]
 }
