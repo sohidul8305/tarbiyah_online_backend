@@ -7,57 +7,92 @@ const courseSchema = new mongoose.Schema(
       required: [true, "কোর্সের শিরোনাম দিন"],
       trim: true,
     },
+    code: {
+      type: String,
+      required: [true, "কোর্স কোড দিন"],
+      unique: true,
+      trim: true,
+    },
     description: {
       type: String,
-      required: [true, "কোর্সের বিবরণ দিন"],
+      default: "",
     },
     category: {
       type: String,
+      default: "Islamic Studies",
+    },
+    department: {
+      type: String,
+      default: "Islamic Studies",
+    },
+    className: {
+      type: String,
+      required: [true, "ক্লাস নির্বাচন করুন"],
+    },
+    teacher: {
+      type: String,
       required: true,
-      enum: [
-        "ডিপ্লোমা ইন ইসলামিক স্টুডিজ",
-        "তারবিয়াহ আলেমাইয়াহ প্রোগ্রাম",
-        "তারবিয়াহ স্টুডিস ফর কিডস",
-        "কুরআন ফর এল্ডার্স",
-      ],
     },
-    thumbnail: {
-      type: String, // ছবির ইউআরএল
-      default: "default-course.jpg",
-    },
-    instructor: {
+    teacherId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      default: null,
     },
-    lessons: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Lesson",
-      },
-    ],
-    assignments: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Assignment",
-      },
-    ],
-    quizzes: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Quiz",
-      },
-    ],
+    duration: {
+      type: String,
+      default: "",
+    },
+    status: {
+      type: String,
+      enum: ["Draft", "Active", "Completed", "Archived"],
+      default: "Draft",
+    },
+    startDate: {
+      type: String,
+      required: [true, "শুরুর তারিখ দিন"],
+    },
+    endDate: {
+      type: String,
+      default: "",
+    },
+    schedule: {
+      type: String,
+      default: "",
+    },
+    students: {
+      type: Number,
+      default: 0,
+    },
+    progress: {
+      type: Number,
+      default: 0,
+    },
+    videos: {
+      type: Number,
+      default: 0,
+    },
+    assignments: {
+      type: Number,
+      default: 0,
+    },
+    quizzes: {
+      type: Number,
+      default: 0,
+    },
+    materials: {
+      type: Number,
+      default: 0,
+    },
+    sessions: {
+      type: Number,
+      default: 0,
+    },
     enrolledStudents: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
       },
     ],
-    price: {
-      type: Number,
-      default: 0,
-    },
     isPublished: {
       type: Boolean,
       default: false,
@@ -67,5 +102,11 @@ const courseSchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+// Index for faster queries
+courseSchema.index({ code: 1 }, { unique: true });
+courseSchema.index({ teacherId: 1 });
+courseSchema.index({ className: 1 });
+courseSchema.index({ status: 1 });
 
 module.exports = mongoose.model("Course", courseSchema);

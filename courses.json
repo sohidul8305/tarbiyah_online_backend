@@ -1,0 +1,52 @@
+{
+  "courses": [
+    {
+      "_id": "1787301999596",
+      "title": "Allimiyah",
+      "code": "02KJ",
+      "description": "ggg",
+      "category": "Tarbiyah Quran Studies",
+      "department": "Tarbiyah Quran Studies",
+      "className": "Hifzul_quran",
+      "teacher": "Ustadh Ahmad",
+      "duration": "04",
+      "status": "Completed",
+      "startDate": "2001-05-05",
+      "endDate": "2003-05-05",
+      "schedule": "09:00AM",
+      "students": 0,
+      "progress": 0,
+      "videos": 0,
+      "assignments": 0,
+      "quizzes": 0,
+      "materials": 0,
+      "sessions": 0,
+      "createdAt": "2026-08-21T08:46:39.596Z",
+      "updatedAt": "2026-08-21T08:46:39.596Z"
+    },
+    {
+      "_id": "1787302076059",
+      "title": "Quran Elder",
+      "code": "021kj",
+      "description": "Goood ",
+      "category": "Tarbiyah Quran Studies",
+      "department": "Tarbiyah Quran Studies",
+      "className": "Basic_tazwid",
+      "teacher": "Ustadh Ahmad",
+      "duration": "06",
+      "status": "Completed",
+      "startDate": "0062-05-03",
+      "endDate": "0230-05-06",
+      "schedule": "09:00AM",
+      "students": 0,
+      "progress": 0,
+      "videos": 0,
+      "assignments": 0,
+      "quizzes": 0,
+      "materials": 0,
+      "sessions": 0,
+      "createdAt": "2026-08-21T08:47:56.059Z",
+      "updatedAt": "2026-08-21T08:47:56.059Z"
+    }
+  ]
+}
