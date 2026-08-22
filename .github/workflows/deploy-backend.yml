@@ -1,5 +1,26 @@
-script: |
-  cd /www/wwwroot/tarbiyahonline.com/backend
-  git pull origin main
-  npm install
-  pm2 restart tarbiyah-backend
+name: Deploy Backend
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get Latest Code
+        uses: actions/checkout@v3
+
+      - name: Run Deploy on Server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /www/wwwroot/tarbiyahonline.com/backend
+            git pull origin main
+            npm install
+            pm2 restart tarbiyah-backend
