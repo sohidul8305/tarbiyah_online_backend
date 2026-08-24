@@ -65,7 +65,7 @@ exports.gradeSubmission = async (req, res) => {
     if (course.instructor.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: "আপনি এই কোর্সের ইনস্ট্রাক্টর নন।",
+        message: "আপনি এই কোর্সের ইনস্ট্রাক্টর নন",
       });
     }
 
