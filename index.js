@@ -28,6 +28,351 @@ if (!fs.existsSync(DATA_FILE)) {
   console.log("✅ courses.json created");
 }
 
+// =============================================
+// ✅ STUDENT SUPPORT ROUTES (JSON File Based)
+// =============================================
+
+// ✅ Student Support File Path
+const SUPPORT_FILE = path.join(__dirname, "support_tickets.json");
+
+// Initialize support_tickets.json file
+if (!fs.existsSync(SUPPORT_FILE)) {
+  fs.writeFileSync(SUPPORT_FILE, JSON.stringify({ tickets: [] }, null, 2));
+  console.log("✅ support_tickets.json created");
+}
+
+const readSupportData = () => {
+  try {
+    const data = fs.readFileSync(SUPPORT_FILE, "utf8");
+    return JSON.parse(data);
+  } catch (error) {
+    return { tickets: [] };
+  }
+};
+
+const writeSupportData = (data) => {
+  fs.writeFileSync(SUPPORT_FILE, JSON.stringify(data, null, 2));
+};
+
+// ✅ Student Submit Support Ticket
+app.post("/api/support/submit", async (req, res) => {
+  try {
+    console.log("📥 POST /api/support/submit");
+    console.log("📝 Body:", req.body);
+
+    const {
+      department,
+      phone,
+      email,
+      name,
+      gender,
+      studentId,
+      reference,
+      subject,
+      problemDetails,
+    } = req.body;
+
+    // ✅ Validate required fields
+    if (
+      !department ||
+      !phone ||
+      !email ||
+      !name ||
+      !subject ||
+      !problemDetails
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "ডিপার্টমেন্ট, ফোন, ইমেইল, নাম, সাবজেক্ট এবং সমস্যা বিবরণ আবশ্যক!",
+      });
+    }
+
+    const data = readSupportData();
+
+    const newTicket = {
+      _id: Date.now().toString(),
+      department,
+      phone,
+      email,
+      name,
+      gender: gender || "",
+      studentId: studentId || "",
+      reference: reference || "",
+      subject,
+      problemDetails,
+      status: "Pending", // Pending, In Progress, Resolved, Closed
+      isRead: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.tickets.push(newTicket);
+    writeSupportData(data);
+
+    console.log("✅ Support ticket submitted:", newTicket._id);
+
+    res.status(201).json({
+      success: true,
+      message: "আপনার সাপোর্ট টিকেট সফলভাবে জমা হয়েছে! অ্যাডমিন শীঘ্রই দেখবেন।",
+      ticket: newTicket,
+    });
+  } catch (error) {
+    console.error("❌ Support Submit Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// ✅ Get All Support Tickets (Admin)
+app.get("/api/support/tickets", async (req, res) => {
+  try {
+    console.log("📥 GET /api/support/tickets");
+    const data = readSupportData();
+
+    // Sort by newest first
+    const tickets = data.tickets.sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+    );
+
+    // Unread count
+    const unreadCount = tickets.filter((t) => !t.isRead).length;
+
+    res.status(200).json({
+      success: true,
+      total: tickets.length,
+      unread: unreadCount,
+      tickets: tickets,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// ✅ Get Unread Support Tickets Count (For Notification Badge)
+app.get("/api/support/unread-count", async (req, res) => {
+  try {
+    const data = readSupportData();
+    const unreadCount = data.tickets.filter((t) => !t.isRead).length;
+
+    res.status(200).json({
+      success: true,
+      unread: unreadCount,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// ✅ Mark Ticket as Read
+app.put("/api/support/ticket/:id/read", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readSupportData();
+
+    const index = data.tickets.findIndex((t) => t._id === id);
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "টিকেট পাওয়া যায়নি!",
+      });
+    }
+
+    data.tickets[index].isRead = true;
+    data.tickets[index].updatedAt = new Date().toISOString();
+    writeSupportData(data);
+
+    res.status(200).json({
+      success: true,
+      message: "টিকেট রিড হিসাবে মার্ক করা হয়েছে!",
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// ✅ Update Ticket Status
+app.put("/api/support/ticket/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["Pending", "In Progress", "Resolved", "Closed"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "সঠিক স্ট্যাটাস দিন! (Pending, In Progress, Resolved, Closed)",
+      });
+    }
+
+    const data = readSupportData();
+    const index = data.tickets.findIndex((t) => t._id === id);
+
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "টিকেট পাওয়া যায়নি!",
+      });
+    }
+
+    data.tickets[index].status = status;
+    data.tickets[index].updatedAt = new Date().toISOString();
+    writeSupportData(data);
+
+    res.status(200).json({
+      success: true,
+      message: "টিকেট স্ট্যাটাস আপডেট হয়েছে!",
+      ticket: data.tickets[index],
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// ➕ রিপ্লাই দেওয়ার রাউট (Admin)
+app.post("/api/support/ticket/:id/reply", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body;
+
+    if (!message)
+      return res
+        .status(400)
+        .json({ success: false, message: "Message is required" });
+
+    const data = readSupportData();
+    const index = data.tickets.findIndex((t) => t._id === id);
+    if (index === -1)
+      return res
+        .status(404)
+        .json({ success: false, message: "Ticket not found" });
+
+    if (!data.tickets[index].replies) data.tickets[index].replies = [];
+
+    data.tickets[index].replies.push({
+      role: "admin",
+      message: message,
+      date: new Date().toLocaleString(),
+    });
+
+    data.tickets[index].status = "In Progress";
+    data.tickets[index].updatedAt = new Date().toISOString();
+
+    writeSupportData(data);
+
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Reply added successfully",
+        ticket: data.tickets[index],
+      });
+  } catch (error) {
+    console.error("❌ Reply Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ স্টুডেন্ট স্ট্যাটাস সার্চ (JSON ফাইল থেকে ডাটা আনা হচ্ছে)
+app.get("/api/support/status", async (req, res) => {
+  try {
+    const { type, value } = req.query;
+    if (!type || !value)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Search type and value are required",
+        });
+
+    const data = readSupportData();
+    let foundTickets = [];
+
+    if (type === "phone") {
+      foundTickets = data.tickets.filter((t) => t.phone === value.trim());
+    } else if (type === "email") {
+      foundTickets = data.tickets.filter(
+        (t) => t.email.toLowerCase() === value.trim().toLowerCase(),
+      );
+    } else if (type === "ticket") {
+      foundTickets = data.tickets.filter((t) => t._id === value.trim());
+    }
+
+    if (foundTickets.length === 0) {
+      return res
+        .status(200)
+        .json({ success: false, message: "No records found", data: [] });
+    }
+
+    // ✅ Frontend-এর জন্য ডাটা ফরম্যাট করা
+    const formattedData = foundTickets.map((ticket) => ({
+      supportNo: ticket._id,
+      dept: ticket.department,
+      desc: ticket.problemDetails,
+      date: new Date(ticket.createdAt).toLocaleString(),
+      status: ticket.status,
+      name: ticket.name,
+      phone: ticket.phone,
+      email: ticket.email,
+      subject: ticket.subject,
+      description: ticket.problemDetails,
+      replies: ticket.replies || [],
+    }));
+
+    res.status(200).json({ success: true, data: formattedData });
+  } catch (error) {
+    console.error("❌ Status Search Error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ✅ Delete Support Ticket
+app.delete("/api/support/ticket/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readSupportData();
+
+    const filtered = data.tickets.filter((t) => t._id !== id);
+    if (filtered.length === data.tickets.length) {
+      return res.status(404).json({
+        success: false,
+        message: "টিকেট পাওয়া যায়নি!",
+      });
+    }
+
+    data.tickets = filtered;
+    writeSupportData(data);
+
+    res.status(200).json({
+      success: true,
+      message: "টিকেট ডিলিট করা হয়েছে!",
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 const readData = () => {
   try {
     const data = fs.readFileSync(DATA_FILE, "utf8");
@@ -84,6 +429,71 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+// মডেলটি আপনার প্রজেক্ট অনুযায়ী সঠিক নাম দিন
+
+// ✅ Student Support Status Check (JSON File Based)
+app.get("/api/support/status", async (req, res) => {
+  try {
+    const { type, value } = req.query;
+
+    if (!type || !value) {
+      return res.status(400).json({
+        success: false,
+        message: "Search type and value are required",
+      });
+    }
+
+    // JSON ফাইল থেকে ডাটা পড়া হচ্ছে
+    const data = readSupportData();
+    const allTickets = data.tickets;
+
+    // ডাটা ফিল্টার করা (কেস-ইনসেনসিটিভ)
+    let filteredTickets = [];
+    const trimmedValue = value.trim().toLowerCase();
+
+    if (type === "phone") {
+      filteredTickets = allTickets.filter((t) => t.phone === value.trim());
+    } else if (type === "email") {
+      filteredTickets = allTickets.filter((t) =>
+        t.email.toLowerCase().includes(trimmedValue),
+      );
+    } else if (type === "ticket") {
+      // JSON ফাইলে supportNo নেই, তাই _id দিয়ে খোঁজা হচ্ছে
+      filteredTickets = allTickets.filter((t) => t._id === value.trim());
+    }
+
+    if (filteredTickets.length === 0) {
+      return res.status(200).json({
+        success: false,
+        message: "No records found",
+        data: [],
+      });
+    }
+
+    // ✅ ডাটাকে Frontend-এ ঠিকমতো দেখানোর জন্য ম্যাপ করা
+    const formattedData = filteredTickets.map((ticket) => ({
+      supportNo: ticket._id, // _id কে supportNo হিসেবে দেখানো হচ্ছে
+      dept: ticket.department,
+      desc: ticket.problemDetails,
+      date: new Date(ticket.createdAt).toLocaleString(),
+      status: ticket.status,
+      name: ticket.name,
+      phone: ticket.phone,
+      email: ticket.email,
+      subject: ticket.subject,
+      description: ticket.problemDetails,
+      replies: ticket.replies || [],
+    }));
+
+    res.status(200).json({ success: true, data: formattedData });
+  } catch (error) {
+    console.error("❌ Status Search Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error: " + error.message,
+    });
+  }
+});
 // =============================================
 // ✅ TEST ROUTE
 // =============================================
