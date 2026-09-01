@@ -277,13 +277,11 @@ app.post("/api/support/ticket/:id/reply", async (req, res) => {
 
     writeSupportData(data);
 
-    res
-      .status(200)
-      .json({
-        success: true,
-        message: "Reply added successfully",
-        ticket: data.tickets[index],
-      });
+    res.status(200).json({
+      success: true,
+      message: "Reply added successfully",
+      ticket: data.tickets[index],
+    });
   } catch (error) {
     console.error("❌ Reply Error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -295,12 +293,10 @@ app.get("/api/support/status", async (req, res) => {
   try {
     const { type, value } = req.query;
     if (!type || !value)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Search type and value are required",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Search type and value are required",
+      });
 
     const data = readSupportData();
     let foundTickets = [];
