@@ -540,10 +540,11 @@ app.get("/api/students/all", async (req, res) => {
 });
 
 // REGISTER STUDENT
+// REGISTER STUDENT
 app.post("/api/students/register/student", async (req, res) => {
   try {
-    console.log("📥 POST /api/students/register/student called");
-    console.log("📝 Request body:", req.body);
+    console.log("📥 POST /api/students/register/student");
+    console.log("📝 Body:", req.body);
 
     const {
       name,
@@ -595,16 +596,85 @@ app.post("/api/students/register/student", async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
+          "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
       });
     }
 
+    // ============================================================
+    // ✅ AUTO-CREATE COURSES in courses.json
+    // Student যেসব কোর্সে enroll করেছে সেগুলো courses.json-এ add
+    // ============================================================
+    const courseNames = String(course)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    console.log("📚 Student enrolled in:", courseNames);
+
+    const coursesData = readData();
+    const enrolledIds = [];
+
+    courseNames.forEach((courseName) => {
+      // এই নামের কোর্স আগে থেকেই আছে কি?
+      let existingCourse = coursesData.courses.find(
+        (c) =>
+          (c.title || "").toLowerCase() === courseName.toLowerCase() ||
+          (c.code || "").toLowerCase() === courseName.toLowerCase(),
+      );
+
+      if (existingCourse) {
+        console.log(`✅ Found existing: ${courseName}`);
+      } else {
+        // নতুন কোর্স তৈরি
+        const newCourseId =
+          Date.now().toString() + Math.floor(Math.random() * 1000);
+        existingCourse = {
+          _id: newCourseId,
+          title: courseName,
+          code: courseName
+            .substring(0, 8)
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, ""),
+          description: `${courseName} course`,
+          category: "Admission Enrolled",
+          department: "General",
+          className: courseName,
+          teacher: "",
+          duration: "",
+          status: "Active",
+          startDate: new Date().toISOString().split("T")[0],
+          endDate: "",
+          schedule: "",
+          students: 1,
+          progress: 0,
+          videos: 0,
+          assignments: 0,
+          quizzes: 0,
+          materials: 0,
+          sessions: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        coursesData.courses.push(existingCourse);
+        console.log(`✅ Created new: ${courseName} → ${newCourseId}`);
+      }
+
+      enrolledIds.push(existingCourse._id);
+    });
+
+    writeData(coursesData);
+    console.log("📚 Enrolled IDs:", enrolledIds);
+
+    // ============================================================
+    // ✅ নতুন Student ডকুমেন্ট — enrolledCourses সহ
+    // ============================================================
     const newStudent = {
       name,
       email,
       phone,
       password,
       course,
+      enrolledCourses: enrolledIds, // ⬅️ এখানে save হবে
       presentAddress: presentAddress || "",
       permanentAddress: permanentAddress || "",
       dobOrNid: dobOrNid || "",
@@ -632,17 +702,18 @@ app.post("/api/students/register/student", async (req, res) => {
     };
 
     const result = await studentsCollection.insertOne(newStudent);
-    console.log("✅ Student registered successfully:", result.insertedId);
+    console.log("✅ Student registered:", result.insertedId);
+    console.log("📚 With courses:", enrolledIds);
 
     res.status(201).json({
       success: true,
       message:
-        "রেজিস্ট্রেশন সফল হয়েছে! অ্যাডমিন অ্যাপ্রুভ করার পর আপনি লগইন করতে পারবেন।",
+        "রেজিস্ট্রেশন সফল! অ্যাডমিন approve করার পর আপনি লগইন করতে পারবেন।",
       studentId: result.insertedId,
       student: { ...newStudent, _id: result.insertedId },
     });
   } catch (error) {
-    console.error("❌ Error in student registration:", error);
+    console.error("❌ Registration Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -651,11 +722,12 @@ app.post("/api/students/register/student", async (req, res) => {
 });
 
 // APPROVE STUDENT
+// APPROVE STUDENT
 app.put("/api/students/approve/:id", async (req, res) => {
   try {
     console.log("📥 PUT /api/students/approve/:id called");
     const { id } = req.params;
-    const { username, password } = req.body;
+    const { username, password, roll, enrolledCourses } = req.body;
 
     if (!id) {
       return res.status(400).json({
@@ -708,14 +780,17 @@ app.put("/api/students/approve/:id", async (req, res) => {
         $set: {
           username: username,
           password: password,
+          roll: roll || "",
           status: "Active",
           approvedAt: new Date(),
           updatedAt: new Date(),
+          enrolledCourses: enrolledCourses || [],
         },
       },
     );
 
-    console.log(`✅ Student ${student.name} approved successfully`);
+    console.log(`✅ Student ${student.name} approved`);
+    console.log(`📚 Enrolled Courses:`, enrolledCourses);
 
     res.status(200).json({
       success: true,
@@ -730,7 +805,6 @@ app.put("/api/students/approve/:id", async (req, res) => {
   }
 });
 
-// STUDENT LOGIN
 // =============================================
 // ✅ STUDENT LOGIN (Fixed)
 // =============================================
@@ -1324,10 +1398,160 @@ app.delete("/api/courses/delete/:id", (req, res) => {
 });
 
 // =============================================
+// =============================================
+// ✅ GET STUDENT'S ENROLLED COURSES
+// =============================================
+// =============================================
+// =============================================
+// ✅ GET STUDENT'S ENROLLED COURSES
+// Student যে কোর্সে enroll করেছে, শুধু সেগুলোই দেখাবে
+// =============================================
+// =============================================
+// ✅ GET STUDENT'S ENROLLED COURSES
+// Fallback: enrolledCourses খালি হলে student.course থেকে auto-create
+// =============================================
+app.get("/api/students/my-courses/:studentId", async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    console.log("========================================");
+    console.log("📥 GET my-courses for:", studentId);
+
+    const studentsCollection = getCollection("students");
+    const student = await studentsCollection.findOne({
+      _id: new ObjectId(studentId),
+    });
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found!",
+      });
+    }
+
+    console.log("👤 Student:", student.name);
+    console.log("📚 enrolledCourses:", student.enrolledCourses);
+    console.log("📚 student.course:", student.course);
+
+    const coursesData = readData();
+    let allCourses = coursesData.courses || [];
+
+    let enrolledCourseIds = student.enrolledCourses || [];
+    let myCourses = [];
+
+    // ✅ Step 1: enrolledCourses IDs দিয়ে match
+    if (enrolledCourseIds.length > 0) {
+      myCourses = allCourses.filter((c) => enrolledCourseIds.includes(c._id));
+      console.log(`✅ Step 1: Matched ${myCourses.length} by IDs`);
+    }
+
+    // ✅ Step 2: Fallback — student.course string থেকে auto-create/match
+    if (myCourses.length === 0 && student.course) {
+      console.log("⚠️ Fallback: Processing student.course string");
+
+      const courseNames = String(student.course)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      console.log("🔍 Course names:", courseNames);
+
+      const newIds = [];
+
+      courseNames.forEach((courseName) => {
+        // আগে existing course খুঁজি (partial match)
+        const lowerName = courseName.toLowerCase();
+        let existing = allCourses.find((c) => {
+          const title = (c.title || "").toLowerCase();
+          const code = (c.code || "").toLowerCase();
+          return (
+            title === lowerName ||
+            code === lowerName ||
+            title.includes(lowerName) ||
+            lowerName.includes(title)
+          );
+        });
+
+        // না পেলে নতুন তৈরি
+        if (!existing) {
+          const newCourseId =
+            Date.now().toString() + Math.floor(Math.random() * 10000);
+          existing = {
+            _id: newCourseId,
+            title: courseName,
+            code: courseName
+              .substring(0, 8)
+              .toUpperCase()
+              .replace(/[^A-Z0-9]/g, ""),
+            description: `${courseName} course`,
+            category: "Admission Enrolled",
+            department: "General",
+            className: courseName,
+            teacher: "",
+            duration: "",
+            status: "Active",
+            startDate: new Date().toISOString().split("T")[0],
+            endDate: "",
+            schedule: "",
+            students: 1,
+            progress: 0,
+            videos: 0,
+            assignments: 0,
+            quizzes: 0,
+            materials: 0,
+            sessions: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          allCourses.push(existing);
+          console.log(`✅ Auto-created: ${courseName} → ${newCourseId}`);
+        } else {
+          console.log(`✅ Found existing: ${courseName} → ${existing._id}`);
+        }
+
+        newIds.push(existing._id);
+      });
+
+      // courses.json-এ save
+      coursesData.courses = allCourses;
+      writeData(coursesData);
+
+      // Student-এর ডকুমেন্টে enrolledCourses save
+      await studentsCollection.updateOne(
+        { _id: new ObjectId(studentId) },
+        {
+          $set: {
+            enrolledCourses: newIds,
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      console.log("💾 Saved enrolledCourses:", newIds);
+
+      myCourses = allCourses.filter((c) => newIds.includes(c._id));
+      console.log(`✅ Step 2: Matched ${myCourses.length} courses`);
+    }
+
+    console.log(`🎯 Final: ${myCourses.length} courses`);
+    console.log("========================================");
+
+    res.status(200).json({
+      success: true,
+      studentName: student.name,
+      studentId: student._id,
+      total: myCourses.length,
+      courses: myCourses,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+// =============================================
 // ✅ API Routes
 // =============================================
 app.use("/api/auth", authRoutes);
-// app.use("/api/courses", courseRoutes); // ❌ কমেন্ট করুন
+// app.use("/api/courses", courseRoutes); //
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/quizzes", quizRoutes);
 app.use("/api/lessons", lessonRoutes);
@@ -1374,6 +1598,7 @@ const startServer = async () => {
 startServer();
 
 // =============================================
+
 // ✅ GRACEFUL SHUTDOWN
 // =============================================
 process.on("SIGINT", async () => {
