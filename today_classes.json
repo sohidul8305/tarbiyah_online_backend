@@ -1,0 +1,25 @@
+{
+  "classes": [
+    {
+      "_id": "1789290444754",
+      "id": 1,
+      "name": "Quran elders ",
+      "subject": "Quran ",
+      "class": "Quran ",
+      "teacher": "Ustaj ",
+      "time": "09:00AM to 10:00AM ",
+      "days": [
+        "Sunday"
+      ],
+      "room": "102 ",
+      "status": "Ongoing",
+      "link": "https://meet.google.com/wot-iczi-kid",
+      "department": "Quran elders ",
+      "students": 25,
+      "totalStudents": 25,
+      "attendance": 0,
+      "createdAt": "2026-09-13T09:07:24.754Z",
+      "updatedAt": "2026-09-13T09:07:24.754Z"
+    }
+  ]
+}
