@@ -215,6 +215,10 @@ app.post("/api/support/submit", async (req, res) => {
   }
 });
 
+app.get("/api/test-data", (req, res) => {
+  res.json({ success: true, message: "Server is working perfectly!" });
+});
+
 // ✅ Get All Support Tickets (Admin)
 app.get("/api/support/tickets", async (req, res) => {
   try {
