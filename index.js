@@ -215,10 +215,10 @@ app.post("/api/support/submit", async (req, res) => {
   }
 });
 
+// একদম ওপরের দিকে (যাতে কোনো মিডলওয়্যার বা অথেন্টিকেশন চেক করার আগেই এটি রেসপন্স দেয়)
 app.get("/api/test-data", (req, res) => {
   res.json({ success: true, message: "Server is working perfectly!" });
 });
-
 // ✅ Get All Support Tickets (Admin)
 app.get("/api/support/tickets", async (req, res) => {
   try {
