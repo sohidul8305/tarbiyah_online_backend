@@ -17,6 +17,68 @@ app.use(
   }),
 );
 
+const DEFAULT_ATT_TEACHERS = [
+  {
+    _id: "TCH_FIXED_001",
+    id: 1,
+    teacherId: "TCH001",
+    name: "Jubayer Ahmad",
+    designation: "Senior Teacher",
+    subject: "Quran For Elders",
+    department: "Quran Studies",
+    phone: "+880 1712 345678",
+    email: "jubayer@tarabiyah.com",
+    joinDate: "2024-01-15",
+    status: "Active",
+    isDefault: true,
+  },
+  {
+    _id: "TCH_FIXED_002",
+    id: 2,
+    teacherId: "TCH002",
+    name: "Sumaiya Afrin Mim",
+    designation: "Junior Teacher",
+    subject: "Quran For Elders",
+    department: "Quran Studies",
+    phone: "+880 1723 456789",
+    email: "sumaiya@tarabiyah.com",
+    joinDate: "2024-02-01",
+    status: "Active",
+    isDefault: true,
+  },
+];
+
+// ✅ Teachers file for attendance
+const ATT_TEACHERS_FILE = path.join(__dirname, "attendance_teachers.json");
+
+if (!fs.existsSync(ATT_TEACHERS_FILE)) {
+  fs.writeFileSync(
+    ATT_TEACHERS_FILE,
+    JSON.stringify({ customTeachers: [] }, null, 2),
+  );
+  console.log("✅ attendance_teachers.json created");
+}
+
+const readAttTeachers = () => {
+  try {
+    const data = fs.readFileSync(ATT_TEACHERS_FILE, "utf8");
+    return JSON.parse(data);
+  } catch (error) {
+    return { customTeachers: [] };
+  }
+};
+
+const writeAttTeachers = (data) => {
+  fs.writeFileSync(ATT_TEACHERS_FILE, JSON.stringify(data, null, 2));
+};
+
+// ✅ Get full teacher list (defaults + custom)
+const getFullAttTeachers = () => {
+  const data = readAttTeachers();
+  const customs = data.customTeachers || [];
+  return [...DEFAULT_ATT_TEACHERS, ...customs];
+};
+
 // =============================================
 // ✅ JSON FILE DATABASE (MongoDB এর বিকল্প)
 // =============================================
@@ -1421,6 +1483,421 @@ app.delete("/api/courses/delete/:id", (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+// =============================================
+// ✅ GET ALL TEACHERS (Fixed 2)
+// =============================================
+app.get("/api/teacher-attendance/teachers", (req, res) => {
+  try {
+    console.log("📥 GET /api/teacher-attendance/teachers");
+    res.status(200).json({
+      success: true,
+      total: FIXED_TEACHERS.length,
+      teachers: FIXED_TEACHERS,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ GET ALL ATTENDANCE
+// =============================================
+app.get("/api/teacher-attendance/all", (req, res) => {
+  try {
+    console.log("📥 GET /api/teacher-attendance/all");
+    const data = readAttData();
+    const attendance = (data.attendance || []).sort((a, b) =>
+      b.date.localeCompare(a.date),
+    );
+
+    res.status(200).json({
+      success: true,
+      total: attendance.length,
+      attendance,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ GET ATTENDANCE BY DATE
+// =============================================
+app.get("/api/teacher-attendance/by-date/:date", (req, res) => {
+  try {
+    const { date } = req.params;
+    console.log("📥 GET by-date:", date);
+
+    const data = readAttData();
+    const records = (data.attendance || []).filter((r) => r.date === date);
+
+    res.status(200).json({
+      success: true,
+      total: records.length,
+      attendance: records,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ GET ATTENDANCE FOR TEACHER (by month)
+// =============================================
+app.get("/api/teacher-attendance/teacher/:teacherId", (req, res) => {
+  try {
+    const { teacherId } = req.params;
+    const { month, year } = req.query;
+    console.log("📥 GET teacher attendance:", teacherId, month, year);
+
+    const data = readAttData();
+    let records = (data.attendance || []).filter(
+      (r) => String(r.teacherId) === String(teacherId),
+    );
+
+    if (month !== undefined && year !== undefined) {
+      records = records.filter((r) => {
+        const d = new Date(r.date);
+        return (
+          d.getMonth() === parseInt(month) && d.getFullYear() === parseInt(year)
+        );
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      total: records.length,
+      attendance: records,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ MARK / CREATE ATTENDANCE
+// =============================================
+app.post("/api/teacher-attendance/mark", (req, res) => {
+  try {
+    console.log("📥 POST /api/teacher-attendance/mark");
+    console.log("📝 Body:", req.body);
+
+    const { teacherId, teacherName, date, status, checkIn, checkOut, note } =
+      req.body;
+
+    if (!teacherId || !date || !status) {
+      return res.status(400).json({
+        success: false,
+        message: "teacherId, date, and status are required!",
+      });
+    }
+
+    const data = readAttData();
+
+    // Check if exists for same teacher + date
+    const existingIndex = data.attendance.findIndex(
+      (r) => String(r.teacherId) === String(teacherId) && r.date === date,
+    );
+
+    if (existingIndex !== -1) {
+      // UPDATE existing
+      data.attendance[existingIndex] = {
+        ...data.attendance[existingIndex],
+        status,
+        checkIn: checkIn || "",
+        checkOut: checkOut || "",
+        note: note || "",
+        updatedAt: new Date().toISOString(),
+      };
+
+      writeAttData(data);
+
+      console.log("✅ Attendance updated:", data.attendance[existingIndex]._id);
+
+      return res.status(200).json({
+        success: true,
+        message: "✅ Attendance updated!",
+        attendance: data.attendance[existingIndex],
+        updated: true,
+      });
+    }
+
+    // CREATE new
+    const newRecord = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      teacherId,
+      teacherName: teacherName || "",
+      date,
+      status,
+      checkIn: checkIn || "",
+      checkOut: checkOut || "",
+      note: note || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.attendance.push(newRecord);
+    writeAttData(data);
+
+    console.log("✅ Attendance created:", newRecord._id);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Attendance marked successfully!",
+      attendance: newRecord,
+    });
+  } catch (error) {
+    console.error("❌ Mark Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ BULK MARK (multiple teachers same date)
+// =============================================
+app.post("/api/teacher-attendance/bulk-mark", (req, res) => {
+  try {
+    console.log("📥 POST /api/teacher-attendance/bulk-mark");
+    const { records } = req.body;
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "records array is required!",
+      });
+    }
+
+    const data = readAttData();
+    const results = [];
+
+    records.forEach((rec) => {
+      const existingIndex = data.attendance.findIndex(
+        (r) =>
+          String(r.teacherId) === String(rec.teacherId) && r.date === rec.date,
+      );
+
+      if (existingIndex !== -1) {
+        data.attendance[existingIndex] = {
+          ...data.attendance[existingIndex],
+          status: rec.status,
+          checkIn: rec.checkIn || "",
+          checkOut: rec.checkOut || "",
+          note: rec.note || "",
+          updatedAt: new Date().toISOString(),
+        };
+        results.push(data.attendance[existingIndex]);
+      } else {
+        const newRecord = {
+          _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+          teacherId: rec.teacherId,
+          teacherName: rec.teacherName || "",
+          date: rec.date,
+          status: rec.status,
+          checkIn: rec.checkIn || "",
+          checkOut: rec.checkOut || "",
+          note: rec.note || "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        data.attendance.push(newRecord);
+        results.push(newRecord);
+      }
+    });
+
+    writeAttData(data);
+
+    res.status(201).json({
+      success: true,
+      message: `✅ ${results.length} attendance records saved!`,
+      attendance: results,
+    });
+  } catch (error) {
+    console.error("❌ Bulk Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ UPDATE ATTENDANCE
+// =============================================
+app.put("/api/teacher-attendance/update/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readAttData();
+    const index = data.attendance.findIndex((r) => r._id === id);
+
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Record not found!",
+      });
+    }
+
+    data.attendance[index] = {
+      ...data.attendance[index],
+      ...req.body,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeAttData(data);
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Updated!",
+      attendance: data.attendance[index],
+    });
+  } catch (error) {
+    console.error("❌ Update Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ DELETE ATTENDANCE
+// =============================================
+app.delete("/api/teacher-attendance/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readAttData();
+    const filtered = data.attendance.filter((r) => r._id !== id);
+
+    if (filtered.length === data.attendance.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Record not found!",
+      });
+    }
+
+    data.attendance = filtered;
+    writeAttData(data);
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Deleted!",
+    });
+  } catch (error) {
+    console.error("❌ Delete Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ STATS — GET /api/teacher-attendance/stats
+// =============================================
+app.get("/api/teacher-attendance/stats", (req, res) => {
+  try {
+    const { month, year } = req.query;
+    const data = readAttData();
+    let records = data.attendance || [];
+    const allTeachers = getFullAttTeachers();
+
+    if (month !== undefined && year !== undefined) {
+      records = records.filter((r) => {
+        const d = new Date(r.date);
+        return (
+          d.getMonth() === parseInt(month) && d.getFullYear() === parseInt(year)
+        );
+      });
+    }
+
+    const stats = allTeachers.map((t) => {
+      const tr = records.filter((r) => String(r.teacherId) === String(t.id));
+      const present = tr.filter((r) => r.status === "Present").length;
+      const absent = tr.filter((r) => r.status === "Absent").length;
+      const late = tr.filter((r) => r.status === "Late").length;
+      const leave = tr.filter((r) => r.status === "Leave").length;
+      const total = tr.length;
+      const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
+
+      return {
+        teacherId: t.id,
+        teacherName: t.name,
+        teacherCode: t.teacherId,
+        total,
+        present,
+        absent,
+        late,
+        leave,
+        percentage,
+      };
+    });
+
+    res.status(200).json({ success: true, stats });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+// =============================================
+// ✅ SEED SAMPLE DATA (optional)
+// =============================================
+app.post("/api/teacher-attendance/seed", (req, res) => {
+  try {
+    const data = { attendance: [] };
+    const statuses = [
+      "Present",
+      "Present",
+      "Present",
+      "Present",
+      "Late",
+      "Absent",
+      "Leave",
+    ];
+
+    // Last 30 days
+    const today = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+
+      // Skip Friday
+      if (d.getDay() === 5) continue;
+
+      const dateStr = d.toISOString().split("T")[0];
+
+      FIXED_TEACHERS.forEach((teacher) => {
+        const status = statuses[Math.floor(Math.random() * statuses.length)];
+        data.attendance.push({
+          _id: `${dateStr}-${teacher.id}-${Date.now()}-${Math.random()}`,
+          teacherId: teacher.id,
+          teacherName: teacher.name,
+          date: dateStr,
+          status,
+          checkIn:
+            status === "Present" || status === "Late"
+              ? `${8 + Math.floor(Math.random() * 2)}:00 AM`
+              : "",
+          checkOut: status === "Present" || status === "Late" ? "4:00 PM" : "",
+          note:
+            status === "Late"
+              ? "Arrived late"
+              : status === "Absent"
+                ? "No notification"
+                : "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      });
+    }
+
+    writeAttData(data);
+
+    res.status(201).json({
+      success: true,
+      message: `✅ Seeded ${data.attendance.length} records`,
+      total: data.attendance.length,
+    });
+  } catch (error) {
+    console.error("❌ Seed Error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -2869,6 +3346,81 @@ app.get("/api/admin-students/batch-summary", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Batch Summary Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ QUICK ADD TEACHER (only name + optional fields)
+// POST /api/teachers-manage/quick-add
+// =============================================
+app.post("/api/teachers-manage/quick-add", (req, res) => {
+  try {
+    console.log("📥 POST /api/teachers-manage/quick-add");
+    console.log("📝 Body:", req.body);
+
+    const { name, specialization, experience, phone, email } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Teacher name is required!",
+      });
+    }
+
+    const data = readTeachers();
+    const trimmedName = name.trim();
+
+    // Duplicate check (case insensitive)
+    const existing = data.teachers.find(
+      (t) => (t.name || "").toLowerCase() === trimmedName.toLowerCase(),
+    );
+
+    if (existing) {
+      // Already exists — return existing teacher
+      return res.status(200).json({
+        success: true,
+        alreadyExists: true,
+        message: `Teacher "${trimmedName}" already exists!`,
+        teacher: existing,
+      });
+    }
+
+    // Auto generate ID
+    const totalTeachers = data.teachers.length;
+    const newTeacherId = `TCH${String(totalTeachers + 1).padStart(3, "0")}`;
+
+    const newTeacher = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      id: newTeacherId,
+      name: trimmedName,
+      email: email || "",
+      phone: phone || "",
+      specialization: specialization || "General",
+      experience: experience || "0 years",
+      qualification: "",
+      designation: "Teacher",
+      gender: "",
+      address: "",
+      bio: "",
+      status: "Active",
+      isQuickAdded: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.teachers.push(newTeacher);
+    writeTeachers(data);
+
+    console.log("✅ Quick teacher added:", newTeacherId, trimmedName);
+
+    res.status(201).json({
+      success: true,
+      message: `✅ Teacher "${trimmedName}" added successfully!`,
+      teacher: newTeacher,
+    });
+  } catch (error) {
+    console.error("❌ Quick Add Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
