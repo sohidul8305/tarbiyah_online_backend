@@ -1,0 +1,16 @@
+{
+  "resources": [
+    {
+      "_id": "179024972875690",
+      "courseId": "1789208314967478",
+      "courseTitle": "Qaida Nooraniya",
+      "courseCode": "QAIDANO",
+      "type": "pdf",
+      "title": "dummy pdf",
+      "url": "https://www.rd.usda.gov/sites/default/files/pdf-sample_0.pdf",
+      "description": "",
+      "createdAt": "2026-09-24T11:35:28.756Z",
+      "updatedAt": "2026-09-24T11:35:28.756Z"
+    }
+  ]
+}

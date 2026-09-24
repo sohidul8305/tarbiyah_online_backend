@@ -19,6 +19,47 @@ app.use(
 );
 
 // =============================================
+// ✅ GRADES ROUTES (JSON File Based)
+// =============================================
+const GRADES_FILE = path.join(__dirname, "grades.json");
+
+if (!fs.existsSync(GRADES_FILE)) {
+  fs.writeFileSync(GRADES_FILE, JSON.stringify({ grades: [] }, null, 2));
+  console.log("✅ grades.json created");
+}
+
+function readGradesData() {
+  try {
+    return JSON.parse(fs.readFileSync(GRADES_FILE, "utf8"));
+  } catch {
+    return { grades: [] };
+  }
+}
+function writeGradesData(data) {
+  fs.writeFileSync(GRADES_FILE, JSON.stringify(data, null, 2));
+}
+
+// =============================================
+// ✅ COURSE RESOURCES (PDF + Quiz)
+// =============================================
+const RESOURCES_FILE = path.join(__dirname, "course_resources.json");
+
+if (!fs.existsSync(RESOURCES_FILE)) {
+  fs.writeFileSync(RESOURCES_FILE, JSON.stringify({ resources: [] }, null, 2));
+  console.log("✅ course_resources.json created");
+}
+
+function readResourcesData() {
+  try {
+    return JSON.parse(fs.readFileSync(RESOURCES_FILE, "utf8"));
+  } catch {
+    return { resources: [] };
+  }
+}
+function writeResourcesData(data) {
+  fs.writeFileSync(RESOURCES_FILE, JSON.stringify(data, null, 2));
+}
+// =============================================
 // ✅ BATCH HELPERS — MUST BE HERE (hoisted)
 // =============================================
 const BATCHES_FILE = path.join(__dirname, "batches.json");
@@ -314,6 +355,215 @@ app.get("/api/support/tickets", async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+// =============================================
+// ✅ GET RESOURCES BY COURSE (Flexible: ID → Title → Code)
+// =============================================
+app.get("/api/course-resources/course/:identifier", (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const decoded = decodeURIComponent(identifier).trim();
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/course-resources/course/", decoded);
+
+    const resourcesData = readResourcesData();
+    const allResources = resourcesData.resources || [];
+
+    console.log(`📦 Total resources in DB: ${allResources.length}`);
+    allResources.forEach((r, i) => {
+      console.log(
+        `   ${i + 1}. type=${r.type} title="${r.title}" courseId="${r.courseId}" courseTitle="${r.courseTitle}" courseCode="${r.courseCode}"`,
+      );
+    });
+
+    let matched = [];
+
+    // ✅ Step 1: Exact ID match
+    matched = allResources.filter(
+      (r) => String(r.courseId) === String(decoded),
+    );
+    console.log(`   Step 1 (by ID): matched ${matched.length}`);
+
+    // ✅ Step 2: If no ID match — try title match (courseTitle)
+    if (matched.length === 0) {
+      const lower = decoded.toLowerCase();
+      matched = allResources.filter((r) => {
+        const rTitle = (r.courseTitle || "").toLowerCase().trim();
+        return (
+          rTitle === lower || rTitle.includes(lower) || lower.includes(rTitle)
+        );
+      });
+      console.log(`   Step 2 (by Title): matched ${matched.length}`);
+    }
+
+    // ✅ Step 3: If still no match — try by course code
+    if (matched.length === 0) {
+      const lower = decoded.toLowerCase();
+      matched = allResources.filter((r) => {
+        const rCode = (r.courseCode || "").toLowerCase().trim();
+        return (
+          rCode === lower || rCode.includes(lower) || lower.includes(rCode)
+        );
+      });
+      console.log(`   Step 3 (by Code): matched ${matched.length}`);
+    }
+
+    // ✅ Step 4: Word-level match (e.g., "Tajweed" in both)
+    if (matched.length === 0) {
+      const searchWords = decoded
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length > 3);
+      matched = allResources.filter((r) => {
+        const rTitle = (r.courseTitle || "").toLowerCase();
+        const rCode = (r.courseCode || "").toLowerCase();
+        const rWords = [...rTitle.split(/\s+/), ...rCode.split(/\s+/)].filter(
+          (w) => w.length > 3,
+        );
+        return searchWords.some((w) => rWords.includes(w));
+      });
+      console.log(`   Step 4 (word match): matched ${matched.length}`);
+    }
+
+    const pdfs = matched.filter((r) => r.type === "pdf");
+    const quizzes = matched.filter((r) => r.type === "quiz");
+
+    console.log(`✅ FINAL → PDFs: ${pdfs.length}, Quizzes: ${quizzes.length}`);
+    console.log("════════════════════════════════════════");
+
+    res.json({
+      success: true,
+      searchedFor: decoded,
+      totalResourcesInDB: allResources.length,
+      matched: matched.length,
+      pdfsCount: pdfs.length,
+      quizzesCount: quizzes.length,
+      pdfs,
+      quizzes,
+      all: matched,
+      // Debug info
+      debug: {
+        allResources: allResources.map((r) => ({
+          type: r.type,
+          title: r.title,
+          courseId: r.courseId,
+          courseTitle: r.courseTitle,
+          courseCode: r.courseCode,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE resource (type: "pdf" | "quiz")
+app.post("/api/course-resources/create", (req, res) => {
+  try {
+    console.log("📥 POST /api/course-resources/create");
+    console.log("📝 Body:", req.body);
+
+    const { courseId, courseTitle, courseCode, type, title, url, description } =
+      req.body;
+
+    if (!courseId || !type || !title || !url) {
+      return res.status(400).json({
+        success: false,
+        message: "Course, Type, Title এবং URL আবশ্যক!",
+      });
+    }
+    if (!["pdf", "quiz"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Type must be 'pdf' or 'quiz'",
+      });
+    }
+
+    const data = readResourcesData();
+
+    const newResource = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      courseId,
+      courseTitle: courseTitle || "",
+      courseCode: courseCode || "",
+      type,
+      title: title.trim(),
+      url: url.trim(),
+      description: description || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.resources.push(newResource);
+    writeResourcesData(data);
+
+    console.log("✅ Resource created:", newResource._id);
+    res.status(201).json({
+      success: true,
+      message: `✅ ${type === "pdf" ? "PDF" : "Quiz"} added!`,
+      resource: newResource,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL resources
+app.get("/api/course-resources/all", (req, res) => {
+  try {
+    const data = readResourcesData();
+    const resources = (data.resources || []).sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+    );
+    res.json({ success: true, total: resources.length, resources });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET resources by course
+app.get("/api/course-resources/course/:courseId", (req, res) => {
+  try {
+    const { courseId } = req.params;
+    console.log("📥 GET resources for course:", courseId);
+    const data = readResourcesData();
+    const resources = (data.resources || []).filter(
+      (r) => String(r.courseId) === String(courseId),
+    );
+    const pdfs = resources.filter((r) => r.type === "pdf");
+    const quizzes = resources.filter((r) => r.type === "quiz");
+    res.json({
+      success: true,
+      total: resources.length,
+      pdfsCount: pdfs.length,
+      quizzesCount: quizzes.length,
+      pdfs,
+      quizzes,
+      all: resources,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE resource
+app.delete("/api/course-resources/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readResourcesData();
+    const filtered = data.resources.filter((r) => r._id !== id);
+    if (filtered.length === data.resources.length) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    data.resources = filtered;
+    writeResourcesData(data);
+    res.json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -3967,6 +4217,203 @@ app.get("/api/batches/debug-list", (req, res) => {
       })),
     }));
     res.json({ success: true, totalBatches: list.length, batches: list });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE / UPSERT grade
+app.post("/api/grades/create", (req, res) => {
+  try {
+    console.log("📥 POST /api/grades/create");
+    console.log("📝 Body:", req.body);
+
+    const {
+      studentId,
+      studentName,
+      studentRoll,
+      courseId,
+      courseTitle,
+      courseCode,
+      grad,
+      classTest,
+      midTerm,
+      finalExam,
+      teacher,
+      remarks,
+    } = req.body;
+
+    if (!studentId || !courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "Student এবং Course আবশ্যক!",
+      });
+    }
+
+    const data = readGradesData();
+
+    // ✅ Check if grade already exists for this student+course
+    const existingIndex = data.grades.findIndex(
+      (g) => g.studentId === studentId && g.courseId === courseId,
+    );
+
+    if (existingIndex !== -1) {
+      // Update existing
+      data.grades[existingIndex] = {
+        ...data.grades[existingIndex],
+        studentName: studentName || data.grades[existingIndex].studentName,
+        studentRoll: studentRoll || data.grades[existingIndex].studentRoll,
+        courseTitle: courseTitle || data.grades[existingIndex].courseTitle,
+        courseCode: courseCode || data.grades[existingIndex].courseCode,
+        grad: grad !== undefined ? grad : data.grades[existingIndex].grad,
+        classTest:
+          classTest !== undefined
+            ? classTest
+            : data.grades[existingIndex].classTest,
+        midTerm:
+          midTerm !== undefined ? midTerm : data.grades[existingIndex].midTerm,
+        finalExam:
+          finalExam !== undefined
+            ? finalExam
+            : data.grades[existingIndex].finalExam,
+        teacher:
+          teacher !== undefined ? teacher : data.grades[existingIndex].teacher,
+        remarks:
+          remarks !== undefined ? remarks : data.grades[existingIndex].remarks,
+        publishedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      writeGradesData(data);
+      console.log("✅ Grade updated:", data.grades[existingIndex]._id);
+      return res.status(200).json({
+        success: true,
+        message: "✅ Grade updated successfully!",
+        grade: data.grades[existingIndex],
+        updated: true,
+      });
+    }
+
+    const newGrade = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      studentId,
+      studentName: studentName || "",
+      studentRoll: studentRoll || "",
+      courseId,
+      courseTitle: courseTitle || "",
+      courseCode: courseCode || "",
+      grad: grad || "N/A",
+      classTest: classTest || "N/A",
+      midTerm: midTerm || "N/A",
+      finalExam: finalExam || "Pending",
+      teacher: teacher || "",
+      remarks: remarks || "",
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.grades.push(newGrade);
+    writeGradesData(data);
+    console.log("✅ Grade created:", newGrade._id);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Grade published successfully!",
+      grade: newGrade,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL GRADES
+app.get("/api/grades/all", (req, res) => {
+  try {
+    const data = readGradesData();
+    const grades = (data.grades || []).sort(
+      (a, b) => new Date(b.publishedAt) - new Date(a.publishedAt),
+    );
+    res.json({ success: true, total: grades.length, grades });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET GRADES FOR STUDENT
+app.get("/api/grades/student/:studentId", (req, res) => {
+  try {
+    const { studentId } = req.params;
+    console.log("📥 GET grades for student:", studentId);
+    const data = readGradesData();
+    const grades = (data.grades || []).filter(
+      (g) => String(g.studentId) === String(studentId),
+    );
+    res.json({ success: true, total: grades.length, grades });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET GRADE FOR STUDENT + COURSE
+app.get("/api/grades/student/:studentId/course/:courseId", (req, res) => {
+  try {
+    const { studentId, courseId } = req.params;
+    console.log("📥 GET grade:", studentId, courseId);
+    const data = readGradesData();
+    const grade = (data.grades || []).find(
+      (g) =>
+        String(g.studentId) === String(studentId) &&
+        String(g.courseId) === String(courseId),
+    );
+    res.json({ success: true, grade: grade || null });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE GRADE
+app.put("/api/grades/update/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readGradesData();
+    const index = data.grades.findIndex((g) => g._id === id);
+    if (index === -1) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Grade not found!" });
+    }
+    data.grades[index] = {
+      ...data.grades[index],
+      ...req.body,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+    writeGradesData(data);
+    res.json({
+      success: true,
+      message: "✅ Grade updated!",
+      grade: data.grades[index],
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE GRADE
+app.delete("/api/grades/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readGradesData();
+    const filtered = data.grades.filter((g) => g._id !== id);
+    if (filtered.length === data.grades.length) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Grade not found!" });
+    }
+    data.grades = filtered;
+    writeGradesData(data);
+    res.json({ success: true, message: "✅ Grade deleted!" });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

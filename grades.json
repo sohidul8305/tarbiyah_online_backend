@@ -1,0 +1,22 @@
+{
+  "grades": [
+    {
+      "_id": "1790244523874416",
+      "studentId": "6aa526fb7cb5796733adfd3f",
+      "studentName": "Omer faruk ",
+      "studentRoll": "",
+      "courseId": "17891214699908824",
+      "courseTitle": "Qaida Noorani",
+      "courseCode": "QAIDANO",
+      "grad": "A-",
+      "classTest": "80",
+      "midTerm": "40",
+      "finalExam": "Pending",
+      "teacher": "Jubair",
+      "remarks": "",
+      "publishedAt": "2026-09-24T10:08:43.874Z",
+      "createdAt": "2026-09-24T10:08:43.874Z",
+      "updatedAt": "2026-09-24T10:08:43.874Z"
+    }
+  ]
+}
