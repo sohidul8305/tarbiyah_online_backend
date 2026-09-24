@@ -1,0 +1,51 @@
+{
+  "batches": [
+    {
+      "_id": "1790241185298938",
+      "id": 1790241185298,
+      "name": "Batch06",
+      "course": "Qaida Nuraniyah",
+      "students": 2,
+      "schedule": "09:00AM ",
+      "teacher": "Jubair",
+      "videoUrl": "https://www.youtube.com/watch?v=ijfI176o8Qc",
+      "description": "Good ",
+      "status": "Active",
+      "createdAt": "2026-09-24T09:13:05.298Z",
+      "updatedAt": "2026-09-24T09:15:45.999Z",
+      "videos": [
+        {
+          "title": "class 2",
+          "url": "https://www.youtube.com/watch?v=HtNfPvsn__U",
+          "addedAt": "2026-09-24T09:14:08.077Z"
+        },
+        {
+          "title": "Class 3",
+          "url": "https://www.youtube.com/watch?v=HtNfPvsn__U",
+          "addedAt": "2026-09-24T09:15:45.981Z"
+        }
+      ]
+    },
+    {
+      "_id": "1790241328630975",
+      "id": 1790241328630,
+      "name": "Batch3",
+      "course": "Bakarah Hifz",
+      "students": 30,
+      "schedule": "02:00AM",
+      "teacher": "Jubair ",
+      "videoUrl": "https://www.youtube.com/watch?v=HtNfPvsn__U",
+      "description": "Good ",
+      "status": "Active",
+      "createdAt": "2026-09-24T09:15:28.630Z",
+      "updatedAt": "2026-09-24T09:16:09.774Z",
+      "videos": [
+        {
+          "title": "Class 3",
+          "url": "https://www.youtube.com/watch?v=HtNfPvsn__U",
+          "addedAt": "2026-09-24T09:16:09.756Z"
+        }
+      ]
+    }
+  ]
+}

@@ -10,12 +10,81 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(express.json());
+
 app.use(
   cors({
     origin: "*",
     credentials: true,
   }),
 );
+
+// =============================================
+// ✅ BATCH HELPERS — MUST BE HERE (hoisted)
+// =============================================
+const BATCHES_FILE = path.join(__dirname, "batches.json");
+
+if (!fs.existsSync(BATCHES_FILE)) {
+  fs.writeFileSync(BATCHES_FILE, JSON.stringify({ batches: [] }, null, 2));
+  console.log("✅ batches.json created");
+}
+
+function readBatchesData() {
+  try {
+    const raw = fs.readFileSync(BATCHES_FILE, "utf8");
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error("❌ readBatchesData error:", err.message);
+    return { batches: [] };
+  }
+}
+
+function writeBatchesData(data) {
+  try {
+    fs.writeFileSync(BATCHES_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error("❌ writeBatchesData error:", err.message);
+  }
+}
+
+// ✅ Extra helpers (future-proof, no crash)
+const FIXED_TEACHERS = [];
+const ATT_DATA_FILE = path.join(__dirname, "attendance_data.json");
+if (!fs.existsSync(ATT_DATA_FILE)) {
+  fs.writeFileSync(ATT_DATA_FILE, JSON.stringify({ attendance: [] }, null, 2));
+}
+function readAttData() {
+  try {
+    return JSON.parse(fs.readFileSync(ATT_DATA_FILE, "utf8"));
+  } catch {
+    return { attendance: [] };
+  }
+}
+function writeAttData(data) {
+  fs.writeFileSync(ATT_DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+const TEACHERS_FILE = path.join(__dirname, "teachers.json");
+if (!fs.existsSync(TEACHERS_FILE)) {
+  fs.writeFileSync(TEACHERS_FILE, JSON.stringify({ teachers: [] }, null, 2));
+}
+function readTeachers() {
+  try {
+    return JSON.parse(fs.readFileSync(TEACHERS_FILE, "utf8"));
+  } catch {
+    return { teachers: [] };
+  }
+}
+function writeTeachers(data) {
+  fs.writeFileSync(TEACHERS_FILE, JSON.stringify(data, null, 2));
+}
+
+function calcStudentDue(courseFee, scholarshipAmount, paidAmount) {
+  return (
+    (Number(courseFee) || 0) -
+    (Number(scholarshipAmount) || 0) -
+    (Number(paidAmount) || 0)
+  );
+}
 
 const DEFAULT_ATT_TEACHERS = [
   {
@@ -592,6 +661,153 @@ app.get("/api/test", (req, res) => {
     message: "API is working!",
     timestamp: new Date().toISOString(),
   });
+});
+
+// ✅ GET ALL BATCHES
+app.get("/api/batches/all", (req, res) => {
+  try {
+    console.log("📥 GET /api/batches/all");
+    const data = readBatchesData();
+    const batches = (data.batches || []).sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+    );
+    res.status(200).json({
+      success: true,
+      total: batches.length,
+      batches,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE BATCH
+app.post("/api/batches/create", (req, res) => {
+  try {
+    console.log("📥 POST /api/batches/create");
+    console.log("📝 Body:", req.body);
+
+    const {
+      name,
+      course,
+      students,
+      schedule,
+      teacher,
+      videoUrl,
+      description,
+      status,
+    } = req.body;
+
+    if (!name || !course) {
+      return res.status(400).json({
+        success: false,
+        message: "Batch Name এবং Course আবশ্যক!",
+      });
+    }
+
+    const data = readBatchesData();
+
+    const newBatch = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      id: Date.now(),
+      name: name.trim(),
+      course: course.trim(),
+      students: parseInt(students) || 0,
+      schedule: schedule || "",
+      teacher: teacher || "",
+      videoUrl: videoUrl || "",
+      description: description || "",
+      status: status || "Active",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.batches.push(newBatch);
+    writeBatchesData(data);
+
+    console.log("✅ Batch created:", newBatch._id);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Batch created successfully!",
+      batch: newBatch,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE BATCH
+app.put("/api/batches/update/:id", (req, res) => {
+  try {
+    console.log("📥 PUT /api/batches/update/:id", req.params.id);
+
+    const { id } = req.params;
+    const data = readBatchesData();
+    const index = data.batches.findIndex((b) => b._id === id);
+
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Batch not found!",
+      });
+    }
+
+    data.batches[index] = {
+      ...data.batches[index],
+      ...req.body,
+      students:
+        parseInt(req.body.students) || data.batches[index].students || 0,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeBatchesData(data);
+
+    console.log("✅ Batch updated:", id);
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Batch updated successfully!",
+      batch: data.batches[index],
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE BATCH
+app.delete("/api/batches/delete/:id", (req, res) => {
+  try {
+    console.log("📥 DELETE /api/batches/delete/:id", req.params.id);
+
+    const { id } = req.params;
+    const data = readBatchesData();
+    const filtered = data.batches.filter((b) => b._id !== id);
+
+    if (filtered.length === data.batches.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Batch not found!",
+      });
+    }
+
+    data.batches = filtered;
+    writeBatchesData(data);
+
+    console.log("✅ Batch deleted:", id);
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Batch deleted successfully!",
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // =============================================
@@ -3429,774 +3645,433 @@ app.post("/api/teachers-manage/quick-add", (req, res) => {
   }
 });
 
-// ✅ SEED — সব ৩১টা Student একবারে যোগ করার জন্য
-app.post("/api/basic-tazweed/seed", async (req, res) => {
+// =============================================
+// ✅ HEALTH CHECK
+// =============================================
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+app.get("/api/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "API is working!",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// =============================================
+// ✅ BATCH ROUTES
+// =============================================
+
+// GET ALL BATCHES
+// ---- GET ALL ----
+
+// GET ALL BATCHES
+
+// ✅ GET ALL BATCHES
+app.get("/api/batches/all", (req, res) => {
   try {
-    console.log("📥 POST /api/basic-tazweed/seed");
-    const collection = getCollection("basic_tazweed_students");
+    console.log("📥 GET /api/batches/all");
+    const data = readBatchesData();
+    const batches = (data.batches || []).sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+    );
+    res.status(200).json({ success: true, total: batches.length, batches });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
-    const seedData = [
-      {
-        studentId: "TET26FB6001",
-        name: "Afeefa Nur",
-        phone: "661293720",
-        country: "France",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 5000,
-        transactionId: "DGD9CFHU69",
-        dueAmount: 0,
-        julyAugust: 5000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6002",
-        name: "Anjumara Ara Laila",
-        phone: "3364473880",
-        country: "France",
-        scholarshipAmount: 2500,
-        courseFee: 2500,
-        paidAmount: 2500,
-        transactionId: "DGD3CEKPV1",
-        dueAmount: 0,
-        julyAugust: 2500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6003",
-        name: "Nasrin Akter",
-        phone: "1986154624",
-        country: "BD",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 5000,
-        transactionId: "DGF5EULQ59",
-        dueAmount: 0,
-        julyAugust: 5000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6004",
-        name: "Marufa Akter Sumi",
-        phone: "1716765832",
-        country: "BD",
-        scholarshipAmount: 1500,
-        courseFee: 3500,
-        paidAmount: 3500,
-        transactionId: "DGH6GQNR0O",
-        dueAmount: 0,
-        julyAugust: 3500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6005",
-        name: "Aziza Afroz Asha",
-        phone: "130542205",
-        country: "BD",
-        scholarshipAmount: 2000,
-        courseFee: 3000,
-        paidAmount: 1000,
-        transactionId: "DGJ4JI1562",
-        dueAmount: 2000,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6006",
-        name: "Kashfia Amin",
-        phone: "01630506600",
-        country: "Qatar",
-        scholarshipAmount: 0,
-        courseFee: 4000,
-        paidAmount: 4000,
-        transactionId: "9626080400045271",
-        dueAmount: 0,
-        julyAugust: 3000,
-        september: 1000,
-        paymentMethodSept: "Bank",
-        paymentDateSept: "02/09/2026",
-        transactionIdSept: "9626090200064407",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6007",
-        name: "Tanisha Amin",
-        phone: "1886769107",
-        country: "BD",
-        scholarshipAmount: 1000,
-        courseFee: 4000,
-        paidAmount: 4000,
-        transactionId: "9626080400047415",
-        dueAmount: 0,
-        julyAugust: 2000,
-        september: 2000,
-        paymentMethodSept: "Bank",
-        paymentDateSept: "02/09/2026",
-        transactionIdSept: "9626090200063745",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6008",
-        name: "Khadijatul Cobra Lima",
-        phone: "1619674213",
-        country: "BD",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 2000,
-        transactionId: "DH595MDLGH",
-        dueAmount: 3000,
-        julyAugust: 2000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6009",
-        name: "Khadijatul Kobra",
-        phone: "1324975882",
-        country: "BD",
-        scholarshipAmount: 1000,
-        courseFee: 2000,
-        paidAmount: 2000,
-        transactionId: "DH525WBEZA",
-        dueAmount: 0,
-        julyAugust: 2000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6010",
-        name: "Mymuna Najnin",
-        phone: "880 1758-034582",
-        country: "BD",
-        scholarshipAmount: 4000,
-        courseFee: 1000,
-        paidAmount: 1000,
-        transactionId: "DH575YY3KB",
-        dueAmount: 0,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6011",
-        name: "Jannatul Ferdos Hera",
-        phone: "60168874284",
-        country: "Malaysia",
-        scholarshipAmount: 2000,
-        courseFee: 3000,
-        paidAmount: 3000,
-        transactionId: "100007000000",
-        dueAmount: 0,
-        julyAugust: 3000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6012",
-        name: "Tasneem Akter Tithy",
-        phone: "1611940085",
-        country: "BD",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 1000,
-        transactionId: "1611T40085",
-        dueAmount: 4000,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6013",
-        name: "Sania Rahman",
-        phone: "1760913428",
-        country: "BD",
-        scholarshipAmount: 2000,
-        courseFee: 3000,
-        paidAmount: 3000,
-        transactionId: "DHC1DQC989",
-        dueAmount: 1000,
-        julyAugust: 1000,
-        september: 1000,
-        paymentMethodSept: "B kash",
-        paymentDateSept: "12/0/2026",
-        transactionIdSept: "DIC6FFD2LK",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6014",
-        name: "Sanjida Akter",
-        phone: "1972190196",
-        country: "BD",
-        scholarshipAmount: 1000,
-        courseFee: 4000,
-        paidAmount: 1000,
-        transactionId: "75TVMM20",
-        dueAmount: 3000,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6015",
-        name: "Halima Bagum",
-        phone: "-8049062163",
-        country: "Japan",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 5000,
-        transactionId: "46268080000000",
-        dueAmount: 0,
-        julyAugust: 5000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6016",
-        name: "Tanjila Islam Rima",
-        phone: "1996202248",
-        country: "BD",
-        scholarshipAmount: 2000,
-        courseFee: 3000,
-        paidAmount: 1000,
-        transactionId: "DHH54C8AAB",
-        dueAmount: 2000,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6017",
-        name: "Jabin Tasnim",
-        phone: "01786304084",
-        country: "Australia",
-        scholarshipAmount: 1500,
-        courseFee: 3500,
-        paidAmount: 3500,
-        transactionId: "FT89872U37098773",
-        dueAmount: 0,
-        julyAugust: 3500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6018",
-        name: "Most. Atara Khatun",
-        phone: "1770831948",
-        country: "BD",
-        scholarshipAmount: 1000,
-        courseFee: 4000,
-        paidAmount: 4000,
-        transactionId: "DHD6F5T3U4",
-        dueAmount: 0,
-        julyAugust: 4000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6019",
-        name: "Ferdous Akter Poly",
-        phone: "1329093243",
-        country: "BD",
-        scholarshipAmount: 3500,
-        courseFee: 1500,
-        paidAmount: 1500,
-        transactionId: "75U6Y45",
-        dueAmount: 0,
-        julyAugust: 1500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6020",
-        name: "Janat Islam",
-        phone: "1743907164",
-        country: "BD",
-        scholarshipAmount: 1500,
-        courseFee: 3500,
-        paidAmount: 3500,
-        transactionId: "DH3KMY7KF",
-        dueAmount: 0,
-        julyAugust: 3500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6021",
-        name: "Ayesha Akter Humayra",
-        phone: "01404-791953",
-        country: "BD",
-        scholarshipAmount: 1000,
-        courseFee: 4000,
-        paidAmount: 1000,
-        transactionId: "DH585LCTLK",
-        dueAmount: 3000,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6022",
-        name: "Tahmina Begum",
-        phone: "447508747682",
-        country: "UK",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 5000,
-        transactionId: "23236906905566268993",
-        dueAmount: 0,
-        julyAugust: 5000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6023",
-        name: "Qaliha Anjum Liha",
-        phone: "1635155101",
-        country: "BD",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 1000,
-        transactionId: "DHP7RQA9X1",
-        dueAmount: 4000,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6024",
-        name: "Bibi Joynab",
-        phone: "1840411834",
-        country: "BD",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 1000,
-        transactionId: "DHR3TRZ293",
-        dueAmount: 4000,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6025",
-        name: "Bibi Fatema",
-        phone: "1645141553",
-        country: "BD",
-        scholarshipAmount: 2500,
-        courseFee: 2500,
-        paidAmount: 2500,
-        transactionId: "Dfr6qytbT2",
-        dueAmount: 0,
-        julyAugust: 2500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6026",
-        name: "Jhorna Begum",
-        phone: "01716-108191",
-        country: "BD",
-        scholarshipAmount: 2500,
-        courseFee: 2500,
-        paidAmount: 2500,
-        transactionId: "DF59SJC6FP",
-        dueAmount: 0,
-        julyAugust: 2500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6027",
-        name: "Sanzida Akter",
-        phone: "0182486000",
-        country: "BD",
-        scholarshipAmount: 0,
-        courseFee: 5000,
-        paidAmount: 2500,
-        transactionId: "DF5T5U1RAX",
-        dueAmount: 2500,
-        julyAugust: 2500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6028",
-        name: "Sabrina",
-        phone: "01795620324",
-        country: "BD",
-        scholarshipAmount: 2500,
-        courseFee: 2500,
-        paidAmount: 1000,
-        transactionId: "01795620324",
-        dueAmount: 1500,
-        julyAugust: 1000,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6029",
-        name: "Farhana Yeasmin Liza",
-        phone: "01672776673",
-        country: "BD",
-        scholarshipAmount: 2500,
-        courseFee: 2500,
-        paidAmount: 2500,
-        transactionId: "DFU1EX2IL",
-        dueAmount: 0,
-        julyAugust: 2500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6030",
-        name: "Rahana Akter",
-        phone: "39389063668",
-        country: "Italy",
-        scholarshipAmount: 2500,
-        courseFee: 2500,
-        paidAmount: 2500,
-        transactionId: "2299738037531185749",
-        dueAmount: 0,
-        julyAugust: 2500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-      {
-        studentId: "TET26FB6031",
-        name: "Dollon Haidar",
-        phone: "01842391934",
-        country: "BD",
-        scholarshipAmount: 2500,
-        courseFee: 2500,
-        paidAmount: 2500,
-        transactionId: "DH595EM329",
-        dueAmount: 0,
-        julyAugust: 2500,
-        september: 0,
-        paymentMethodSept: "-",
-        paymentDateSept: "-",
-        transactionIdSept: "-",
-        october: 0,
-        paymentMethodOct: "-",
-        paymentDateOct: "-",
-        transactionIdOct: "-",
-        november: 0,
-        paymentMethodNov: "-",
-        paymentDateNov: "-",
-        transactionIdNov: "-",
-      },
-    ];
+// ✅ CREATE BATCH
+app.post("/api/batches/create", (req, res) => {
+  try {
+    console.log("📥 POST /api/batches/create");
+    console.log("📝 Body:", req.body);
 
-    // Clear existing and insert all
-    await collection.deleteMany({});
-    const result = await collection.insertMany(seedData);
+    const {
+      name,
+      course,
+      students,
+      schedule,
+      teacher,
+      videoUrl,
+      description,
+      status,
+    } = req.body;
 
-    console.log(`✅ Seeded ${result.insertedCount} students`);
+    if (!name || !course) {
+      return res.status(400).json({
+        success: false,
+        message: "Batch Name এবং Course আবশ্যক!",
+      });
+    }
+
+    const data = readBatchesData();
+
+    const newBatch = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      id: Date.now(),
+      name: String(name).trim(),
+      course: String(course).trim(),
+      students: parseInt(students) || 0,
+      schedule: schedule || "",
+      teacher: teacher || "",
+      videoUrl: videoUrl || "",
+      videos: [], // ✅ Multiple videos array
+      description: description || "",
+      status: status || "Active",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.batches.push(newBatch);
+    writeBatchesData(data);
+
+    console.log("✅ Batch created:", newBatch._id);
 
     res.status(201).json({
       success: true,
-      message: `${result.insertedCount} students seeded successfully!`,
-      insertedCount: result.insertedCount,
+      message: "✅ Batch created successfully!",
+      batch: newBatch,
     });
   } catch (error) {
-    console.error("❌ Seed Error:", error);
+    console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
+});
+
+// ✅ UPDATE BATCH
+app.put("/api/batches/update/:id", (req, res) => {
+  try {
+    console.log("📥 PUT /api/batches/update/:id", req.params.id);
+
+    const { id } = req.params;
+    const data = readBatchesData();
+    const index = data.batches.findIndex((b) => b._id === id);
+
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Batch not found!",
+      });
+    }
+
+    data.batches[index] = {
+      ...data.batches[index],
+      ...req.body,
+      students:
+        parseInt(req.body.students) || data.batches[index].students || 0,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeBatchesData(data);
+
+    console.log("✅ Batch updated:", id);
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Batch updated successfully!",
+      batch: data.batches[index],
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE BATCH
+app.delete("/api/batches/delete/:id", (req, res) => {
+  try {
+    console.log("📥 DELETE /api/batches/delete/:id", req.params.id);
+
+    const { id } = req.params;
+    const data = readBatchesData();
+    const filtered = data.batches.filter((b) => b._id !== id);
+
+    if (filtered.length === data.batches.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Batch not found!",
+      });
+    }
+
+    data.batches = filtered;
+    writeBatchesData(data);
+
+    console.log("✅ Batch deleted:", id);
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Batch deleted successfully!",
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ GET COURSE VIDEOS (Student View)
+// Batch এর videos গুলো course name দিয়ে খুঁজে বের করে
+// =============================================
+// =============================================
+// ✅ BATCH: GET VIDEOS BY COURSE (Student View)
+// =============================================
+app.get("/api/batches/course-videos/:courseName", (req, res) => {
+  try {
+    const decoded = decodeURIComponent(req.params.courseName || "").trim();
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/batches/course-videos");
+    console.log("🔍 Searching for course:", `"${decoded}"`);
+
+    const data = readBatchesData();
+    const allBatches = data.batches || [];
+
+    console.log(`📦 Total batches in DB: ${allBatches.length}`);
+    allBatches.forEach((b, i) => {
+      const vidCount = (b.videos || []).length + (b.videoUrl ? 1 : 0);
+      console.log(
+        `   ${i + 1}. name="${b.name}" course="${b.course}" totalVideos=${vidCount}`,
+      );
+    });
+
+    const searchLower = decoded.toLowerCase();
+
+    // ✅ Flexible matching
+    const matching = allBatches.filter((b) => {
+      const bCourse = (b.course || "").toLowerCase().trim();
+      const bName = (b.name || "").toLowerCase().trim();
+
+      if (!bCourse && !bName) return false;
+      if (bCourse === searchLower || bName === searchLower) return true;
+      if (bCourse.includes(searchLower) || searchLower.includes(bCourse))
+        return true;
+      if (bName.includes(searchLower) || searchLower.includes(bName))
+        return true;
+
+      // Word-level match
+      const sw = searchLower.split(/\s+/).filter((w) => w.length > 3);
+      const bw = bCourse.split(/\s+/).filter((w) => w.length > 3);
+      if (sw.some((w) => bw.includes(w))) return true;
+
+      return false;
+    });
+
+    console.log(`✅ Matched batches: ${matching.length}`);
+
+    // Build videos list
+    const videos = [];
+    matching.forEach((batch) => {
+      // Primary video
+      if (batch.videoUrl && batch.videoUrl.trim()) {
+        videos.push({
+          _id: batch._id + "_p",
+          title: `${batch.name} - Primary Video`,
+          url: batch.videoUrl.trim(),
+          batchName: batch.name,
+          teacher: batch.teacher || "",
+          addedAt: batch.createdAt || "",
+        });
+      }
+      // Multiple videos
+      (batch.videos || []).forEach((v, i) => {
+        if (v && v.url && v.url.trim()) {
+          videos.push({
+            _id: `${batch._id}_v${i}`,
+            title: v.title || `Video ${i + 1}`,
+            url: v.url.trim(),
+            batchName: batch.name,
+            teacher: batch.teacher || "",
+            addedAt: v.addedAt || batch.createdAt || "",
+          });
+        }
+      });
+    });
+
+    console.log(`🎯 Total videos to return: ${videos.length}`);
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      searchedCourse: decoded,
+      totalBatches: allBatches.length,
+      matchedBatches: matching.length,
+      total: videos.length,
+      videos,
+      // Debug info
+      debug: {
+        allBatchCourses: allBatches.map((b) => ({
+          name: b.name,
+          course: b.course,
+          videoCount: (b.videos || []).length + (b.videoUrl ? 1 : 0),
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ DEBUG: List all batches with courses + video counts
+// =============================================
+app.get("/api/batches/debug", (req, res) => {
+  try {
+    const data = readBatchesData();
+    const summary = (data.batches || []).map((b) => ({
+      _id: b._id,
+      name: b.name,
+      course: b.course,
+      primaryVideo: b.videoUrl || "(none)",
+      videosCount: (b.videos || []).length,
+      videos: (b.videos || []).map((v) => ({
+        title: v.title,
+        url: v.url,
+      })),
+    }));
+
+    res.status(200).json({
+      success: true,
+      totalBatches: summary.length,
+      batches: summary,
+    });
+  } catch (error) {
+    console.error("❌", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ DEBUG: List all batches
+// =============================================
+app.get("/api/batches/debug-list", (req, res) => {
+  try {
+    const data = readBatchesData();
+    const list = (data.batches || []).map((b) => ({
+      _id: b._id,
+      name: b.name,
+      course: b.course,
+      hasPrimaryVideo: !!b.videoUrl,
+      videosCount: (b.videos || []).length,
+      videos: (b.videos || []).map((v) => ({
+        title: v.title,
+        url: v.url,
+      })),
+    }));
+    res.json({ success: true, totalBatches: list.length, batches: list });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+// =============================================
+// ✅ GET COURSE VIDEOS — IMPROVED MATCHING
+// =============================================
+app.get("/api/batches/course-videos/:courseName", (req, res) => {
+  try {
+    const { courseName } = req.params;
+    const decoded = decodeURIComponent(courseName).trim();
+    console.log("========================================");
+    console.log("📥 GET /api/batches/course-videos/", decoded);
+
+    const data = readBatchesData();
+    const allBatches = data.batches || [];
+
+    console.log(`📦 Total batches in DB: ${allBatches.length}`);
+    allBatches.forEach((b, i) => {
+      console.log(
+        `   ${i + 1}. name="${b.name}" | course="${b.course}" | videos=${(b.videos || []).length} | primary="${b.videoUrl ? "yes" : "no"}"`,
+      );
+    });
+
+    const searchLower = decoded.toLowerCase();
+
+    // ✅ Flexible matching
+    const matching = allBatches.filter((b) => {
+      const bCourse = (b.course || "").toLowerCase().trim();
+      const bName = (b.name || "").toLowerCase().trim();
+
+      // Exact
+      if (bCourse === searchLower || bName === searchLower) return true;
+      // One contains other
+      if (bCourse.includes(searchLower)) return true;
+      if (searchLower.includes(bCourse) && bCourse.length > 2) return true;
+      // Both share a word (>3 chars) - e.g., "Tajweed" in both
+      const searchWords = searchLower.split(/\s+/).filter((w) => w.length > 3);
+      const batchWords = bCourse.split(/\s+/).filter((w) => w.length > 3);
+      if (searchWords.some((w) => batchWords.includes(w))) return true;
+
+      return false;
+    });
+
+    console.log(`✅ Matched ${matching.length} batches`);
+
+    const videos = [];
+    matching.forEach((batch) => {
+      // Primary
+      if (batch.videoUrl && batch.videoUrl.trim()) {
+        videos.push({
+          _id: batch._id + "_primary",
+          title: `${batch.name} - Primary Video`,
+          url: batch.videoUrl,
+          batchName: batch.name,
+          teacher: batch.teacher || "",
+          addedAt: batch.createdAt,
+        });
+      }
+      // Multiple videos
+      (batch.videos || []).forEach((v, i) => {
+        videos.push({
+          _id: `${batch._id}_v${i}`,
+          title: v.title || `Video ${i + 1}`,
+          url: v.url,
+          batchName: batch.name,
+          teacher: batch.teacher || "",
+          addedAt: v.addedAt || batch.createdAt,
+        });
+      });
+    });
+
+    console.log(`🎯 Returning ${videos.length} videos`);
+    console.log("========================================");
+
+    res.status(200).json({
+      success: true,
+      searchedCourse: decoded,
+      totalBatchesInDB: allBatches.length,
+      matchedBatches: matching.length,
+      total: videos.length,
+      videos,
+      // ✅ Debug info for frontend
+      debug: {
+        allBatchCourses: allBatches.map((b) => ({
+          name: b.name,
+          course: b.course,
+          videosCount: (b.videos || []).length,
+          hasPrimary: !!b.videoUrl,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+// =============================================
+// ✅ 404 HANDLER
+// =============================================
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.url}`,
+  });
 });
 
 // =============================================
