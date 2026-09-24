@@ -4215,6 +4215,7 @@ app.use("/api/lessons", lessonRoutes);
 app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
+// app.use("/api/admin-profile", adminProfileRoutes);
 
 // =============================================
 // ✅ ERROR HANDLER
