@@ -1,0 +1,19 @@
+{
+  "profiles": [
+    {
+      "_id": "1790398491567463",
+      "email": "elders@tarabiyah.com",
+      "name": "Mahfujur Rahaman",
+      "phone": "+880 150000000",
+      "designation": "Administrator",
+      "department": "Elders",
+      "joinDate": "January 2024",
+      "bio": "Administrator of Elders Department at Tarbiyah Online Madrasha.",
+      "address": "Dhaka, Bangladesh",
+      "website": "https://tarabiyahonline.com",
+      "profileImage": "https://i.ibb.co/DHHD7dkW/mahfuz.png",
+      "updatedAt": "2026-09-26T04:54:51.567Z",
+      "createdAt": "2026-09-26T04:54:51.567Z"
+    }
+  ]
+}

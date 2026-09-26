@@ -40,6 +40,30 @@ function writeGradesData(data) {
 }
 
 // =============================================
+// ✅ ADMIN PROFILE ROUTES (JSON File Based)
+// =============================================
+const ADMIN_PROFILES_FILE = path.join(__dirname, "admin_profiles.json");
+
+if (!fs.existsSync(ADMIN_PROFILES_FILE)) {
+  fs.writeFileSync(
+    ADMIN_PROFILES_FILE,
+    JSON.stringify({ profiles: [] }, null, 2),
+  );
+  console.log("✅ admin_profiles.json created");
+}
+
+function readAdminProfiles() {
+  try {
+    return JSON.parse(fs.readFileSync(ADMIN_PROFILES_FILE, "utf8"));
+  } catch {
+    return { profiles: [] };
+  }
+}
+function writeAdminProfiles(data) {
+  fs.writeFileSync(ADMIN_PROFILES_FILE, JSON.stringify(data, null, 2));
+}
+
+// =============================================
 // ✅ COURSE RESOURCES (PDF + Quiz)
 // =============================================
 const RESOURCES_FILE = path.join(__dirname, "course_resources.json");
@@ -520,31 +544,6 @@ app.get("/api/course-resources/all", (req, res) => {
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     );
     res.json({ success: true, total: resources.length, resources });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ✅ GET resources by course
-app.get("/api/course-resources/course/:courseId", (req, res) => {
-  try {
-    const { courseId } = req.params;
-    console.log("📥 GET resources for course:", courseId);
-    const data = readResourcesData();
-    const resources = (data.resources || []).filter(
-      (r) => String(r.courseId) === String(courseId),
-    );
-    const pdfs = resources.filter((r) => r.type === "pdf");
-    const quizzes = resources.filter((r) => r.type === "quiz");
-    res.json({
-      success: true,
-      total: resources.length,
-      pdfsCount: pdfs.length,
-      quizzesCount: quizzes.length,
-      pdfs,
-      quizzes,
-      all: resources,
-    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -4414,6 +4413,202 @@ app.delete("/api/grades/delete/:id", (req, res) => {
     data.grades = filtered;
     writeGradesData(data);
     res.json({ success: true, message: "✅ Grade deleted!" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ADMIN PROFILE by email
+app.get("/api/admin-profile/:email", (req, res) => {
+  try {
+    const { email } = req.params;
+    const decoded = decodeURIComponent(email).toLowerCase().trim();
+    console.log("📥 GET /api/admin-profile/", decoded);
+
+    const data = readAdminProfiles();
+    const profile = (data.profiles || []).find(
+      (p) => (p.email || "").toLowerCase().trim() === decoded,
+    );
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile not found",
+      });
+    }
+
+    console.log("✅ Profile found for:", decoded);
+    res.json({ success: true, profile });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE or UPDATE admin profile (UPSERT)
+app.post("/api/admin-profile/save", (req, res) => {
+  try {
+    console.log("📥 POST /api/admin-profile/save");
+    console.log("📝 Body:", req.body);
+
+    const {
+      email,
+      name,
+      phone,
+      designation,
+      department,
+      joinDate,
+      bio,
+      address,
+      website,
+      profileImage,
+    } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email আবশ্যক!",
+      });
+    }
+
+    const lowerEmail = email.toLowerCase().trim();
+    const data = readAdminProfiles();
+
+    const existingIndex = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === lowerEmail,
+    );
+
+    const profileData = {
+      email: lowerEmail,
+      name: name || "",
+      phone: phone || "",
+      designation: designation || "",
+      department: department || "",
+      joinDate: joinDate || "",
+      bio: bio || "",
+      address: address || "",
+      website: website || "",
+      profileImage: profileImage || "",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (existingIndex !== -1) {
+      // Update
+      data.profiles[existingIndex] = {
+        ...data.profiles[existingIndex],
+        ...profileData,
+      };
+      writeAdminProfiles(data);
+      console.log("✅ Profile updated:", lowerEmail);
+      return res.json({
+        success: true,
+        message: "✅ Profile updated successfully!",
+        profile: data.profiles[existingIndex],
+        updated: true,
+      });
+    }
+
+    // Create new
+    const newProfile = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      ...profileData,
+      createdAt: new Date().toISOString(),
+    };
+
+    data.profiles.push(newProfile);
+    writeAdminProfiles(data);
+    console.log("✅ Profile created:", lowerEmail);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Profile created successfully!",
+      profile: newProfile,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE single field
+app.put("/api/admin-profile/update/:email", (req, res) => {
+  try {
+    const { email } = req.params;
+    const lowerEmail = decodeURIComponent(email).toLowerCase().trim();
+    console.log("📥 PUT /api/admin-profile/update/", lowerEmail);
+
+    const data = readAdminProfiles();
+    const index = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === lowerEmail,
+    );
+
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile not found!",
+      });
+    }
+
+    data.profiles[index] = {
+      ...data.profiles[index],
+      ...req.body,
+      email: lowerEmail,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeAdminProfiles(data);
+    console.log("✅ Profile updated:", lowerEmail);
+
+    res.json({
+      success: true,
+      message: "✅ Profile updated!",
+      profile: data.profiles[index],
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE admin profile
+app.delete("/api/admin-profile/delete/:email", (req, res) => {
+  try {
+    const { email } = req.params;
+    const lowerEmail = decodeURIComponent(email).toLowerCase().trim();
+    console.log("📥 DELETE /api/admin-profile/delete/", lowerEmail);
+
+    const data = readAdminProfiles();
+    const filtered = (data.profiles || []).filter(
+      (p) => (p.email || "").toLowerCase().trim() !== lowerEmail,
+    );
+
+    if (filtered.length === data.profiles.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile not found!",
+      });
+    }
+
+    data.profiles = filtered;
+    writeAdminProfiles(data);
+
+    console.log("✅ Profile deleted:", lowerEmail);
+    res.json({ success: true, message: "✅ Profile deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL admin profiles (debug)
+app.get("/api/admin-profiles/all", (req, res) => {
+  try {
+    const data = readAdminProfiles();
+    res.json({
+      success: true,
+      total: (data.profiles || []).length,
+      profiles: data.profiles || [],
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
