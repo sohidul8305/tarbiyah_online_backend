@@ -40,6 +40,30 @@ function writeGradesData(data) {
 }
 
 // =============================================
+// ✅ STUDENT ATTENDANCE REPORT — JSON File Based
+// =============================================
+const STUDENT_ATT_FILE = path.join(__dirname, "student_attendance.json");
+
+if (!fs.existsSync(STUDENT_ATT_FILE)) {
+  fs.writeFileSync(
+    STUDENT_ATT_FILE,
+    JSON.stringify({ attendance: [] }, null, 2),
+  );
+  console.log("✅ student_attendance.json created");
+}
+
+function readStudentAtt() {
+  try {
+    return JSON.parse(fs.readFileSync(STUDENT_ATT_FILE, "utf8"));
+  } catch {
+    return { attendance: [] };
+  }
+}
+function writeStudentAtt(data) {
+  fs.writeFileSync(STUDENT_ATT_FILE, JSON.stringify(data, null, 2));
+}
+
+// =============================================
 // ✅ ADMIN PROFILE ROUTES (JSON File Based)
 // =============================================
 const ADMIN_PROFILES_FILE = path.join(__dirname, "admin_profiles.json");
@@ -346,6 +370,225 @@ app.post("/api/support/submit", async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+// ✅ GET ALL ATTENDANCE (with optional filters)
+app.get("/api/attendance-report/all", async (req, res) => {
+  try {
+    const { date, status, class: cls, subject, department } = req.query;
+    console.log("📥 GET /api/attendance-report/all");
+
+    const data = readStudentAtt();
+    let records = data.attendance || [];
+
+    // Apply filters
+    if (date) records = records.filter((r) => r.date === date);
+    if (status && status !== "All")
+      records = records.filter((r) => r.status === status);
+    if (cls && cls !== "All") records = records.filter((r) => r.class === cls);
+    if (subject && subject !== "All")
+      records = records.filter((r) => r.subject === subject);
+    if (department && department !== "All") {
+      const s = department.toLowerCase();
+      records = records.filter(
+        (r) =>
+          (r.subject || "").toLowerCase().includes(s) ||
+          (r.course || "").toLowerCase().includes(s),
+      );
+    }
+
+    // Sort newest first
+    records.sort((a, b) => {
+      if (a.date !== b.date) return new Date(b.date) - new Date(a.date);
+      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    });
+
+    // Stats
+    const today = new Date().toISOString().split("T")[0];
+    const todayRecords = records.filter((r) => r.date === today);
+    const presentToday = todayRecords.filter(
+      (r) => r.status === "Present",
+    ).length;
+    const absentToday = todayRecords.filter(
+      (r) => r.status === "Absent",
+    ).length;
+    const lateToday = todayRecords.filter((r) => r.status === "Late").length;
+    const leaveToday = todayRecords.filter((r) => r.status === "Leave").length;
+    const totalPresent = records.filter((r) => r.status === "Present").length;
+    const overall =
+      records.length > 0
+        ? Math.round((totalPresent / records.length) * 100)
+        : 0;
+
+    // Unique values for filters
+    const uniqueClasses = [
+      ...new Set(records.map((r) => r.class).filter(Boolean)),
+    ];
+    const uniqueSubjects = [
+      ...new Set(records.map((r) => r.subject).filter(Boolean)),
+    ];
+    const uniqueStatuses = [
+      ...new Set(records.map((r) => r.status).filter(Boolean)),
+    ];
+
+    res.json({
+      success: true,
+      total: records.length,
+      records,
+      stats: {
+        totalRecords: records.length,
+        presentToday,
+        absentToday,
+        lateToday,
+        leaveToday,
+        overallAttendance: overall,
+      },
+      uniqueClasses,
+      uniqueSubjects,
+      uniqueStatuses,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE ATTENDANCE
+app.post("/api/attendance-report/create", (req, res) => {
+  try {
+    console.log("📥 POST /api/attendance-report/create");
+    const body = req.body;
+
+    if (!body.studentName || !body.class || !body.subject || !body.date) {
+      return res.status(400).json({
+        success: false,
+        message: "Student, Class, Subject, Date আবশ্যক!",
+      });
+    }
+
+    const data = readStudentAtt();
+
+    const newRecord = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      id: Date.now(),
+      studentName: body.studentName,
+      studentId: body.studentId || "",
+      class: body.class,
+      subject: body.subject,
+      date: body.date,
+      status: body.status || "Present",
+      checkIn: body.status !== "Absent" ? body.checkIn || "" : "",
+      checkOut: body.status !== "Absent" ? body.checkOut || "" : "",
+      teacher: body.teacher || "",
+      note: body.note || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.attendance.push(newRecord);
+    writeStudentAtt(data);
+
+    console.log("✅ Attendance created:", newRecord._id);
+    res.status(201).json({ success: true, record: newRecord });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE
+app.put("/api/attendance-report/update/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/attendance-report/update/", id);
+
+    const data = readStudentAtt();
+    const index = data.attendance.findIndex((r) => r._id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.attendance[index] = {
+      ...data.attendance[index],
+      ...req.body,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeStudentAtt(data);
+    res.json({ success: true, record: data.attendance[index] });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/attendance-report/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/attendance-report/delete/", id);
+
+    const data = readStudentAtt();
+    const filtered = data.attendance.filter((r) => r._id !== id);
+    if (filtered.length === data.attendance.length) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.attendance = filtered;
+    writeStudentAtt(data);
+    res.json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ BULK CREATE (mark attendance for many students at once)
+app.post("/api/attendance-report/bulk-create", (req, res) => {
+  try {
+    const { records } = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "records আবশ্যক!" });
+    }
+
+    const data = readStudentAtt();
+    const created = [];
+
+    records.forEach((body) => {
+      if (!body.studentName || !body.class || !body.subject || !body.date)
+        return;
+
+      const newRecord = {
+        _id: Date.now().toString() + Math.floor(Math.random() * 100000),
+        id: Date.now() + Math.random(),
+        studentName: body.studentName,
+        studentId: body.studentId || "",
+        class: body.class,
+        subject: body.subject,
+        date: body.date,
+        status: body.status || "Present",
+        checkIn: body.status !== "Absent" ? body.checkIn || "" : "",
+        checkOut: body.status !== "Absent" ? body.checkOut || "" : "",
+        teacher: body.teacher || "",
+        note: body.note || "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      data.attendance.push(newRecord);
+      created.push(newRecord);
+    });
+
+    writeStudentAtt(data);
+    res
+      .status(201)
+      .json({ success: true, total: created.length, records: created });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -4610,6 +4853,297 @@ app.get("/api/admin-profiles/all", (req, res) => {
       profiles: data.profiles || [],
     });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ ADMISSION REPORT — Dynamic from students
+// =============================================
+// =============================================
+// ✅ ADMISSION REPORT — With Department Filter
+// =============================================
+app.get("/api/admission-report/all", async (req, res) => {
+  try {
+    const { department } = req.query;
+    console.log(
+      "📥 GET /api/admission-report/all | department:",
+      department || "All",
+    );
+
+    const studentsCollection = getCollection("students");
+    if (!studentsCollection) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    let students = await studentsCollection
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    // ✅ Filter by department (if provided)
+    if (department && department !== "All") {
+      const search = department.toLowerCase().trim();
+      students = students.filter((s) => {
+        const sDept = (s.department || "").toLowerCase();
+        const sCourse = String(s.course || "").toLowerCase();
+        const sBatch = (s.batch || "").toLowerCase();
+        // Match department field OR course names OR batch
+        return (
+          sDept === search ||
+          sCourse.includes(search) ||
+          sBatch.includes(search) ||
+          sCourse.split(",").some((c) => c.trim() === search)
+        );
+      });
+      console.log(
+        `🎯 Filtered to ${students.length} students for "${department}"`,
+      );
+    }
+
+    const records = students.map((s) => {
+      const rawStatus = s.status || "Pending";
+      let uiStatus = "Pending";
+      if (rawStatus === "Active") uiStatus = "Approved";
+      else if (rawStatus === "Rejected" || rawStatus === "Inactive")
+        uiStatus = "Rejected";
+
+      const admissionDate = s.admissionDate
+        ? new Date(s.admissionDate).toISOString().split("T")[0]
+        : s.createdAt
+          ? new Date(s.createdAt).toISOString().split("T")[0]
+          : "";
+
+      return {
+        id: s._id.toString(),
+        _id: s._id.toString(),
+        studentName: s.name || "Unknown",
+        studentId:
+          s.studentId ||
+          s.username ||
+          s.roll ||
+          s._id.toString().slice(-6).toUpperCase(),
+        class: s.class || s.course || "N/A",
+        course: s.course || "",
+        department: s.department || "",
+        batch: s.batch || "",
+        subject: s.course || "General",
+        applicationDate: admissionDate,
+        status: uiStatus,
+        rawStatus: rawStatus,
+        parentName: s.guardianName || s.fatherName || "",
+        parentPhone: s.guardianPhone || s.phone || "",
+        email: s.email || "",
+        address: s.presentAddress || s.address || "",
+        previousSchool: s.previousSchool || "",
+        notes: s.comments || "",
+        gender: s.gender || "N/A",
+        country: s.country || "BD",
+      };
+    });
+
+    const total = records.length;
+    const approved = records.filter((r) => r.status === "Approved").length;
+    const pending = records.filter((r) => r.status === "Pending").length;
+    const rejected = records.filter((r) => r.status === "Rejected").length;
+
+    const now = new Date();
+    const newThisMonth = records.filter((r) => {
+      if (!r.applicationDate) return false;
+      const d = new Date(r.applicationDate);
+      return (
+        d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+      );
+    }).length;
+
+    const monthNames = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    const monthlyMap = {};
+    records.forEach((r) => {
+      if (!r.applicationDate) return;
+      const d = new Date(r.applicationDate);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      if (!monthlyMap[key]) {
+        monthlyMap[key] = {
+          month: monthNames[d.getMonth()],
+          year: d.getFullYear(),
+          applications: 0,
+          approved: 0,
+          rejected: 0,
+          sortKey: d.getFullYear() * 12 + d.getMonth(),
+        };
+      }
+      monthlyMap[key].applications++;
+      if (r.status === "Approved") monthlyMap[key].approved++;
+      if (r.status === "Rejected") monthlyMap[key].rejected++;
+    });
+    const monthlyData = Object.values(monthlyMap).sort(
+      (a, b) => a.sortKey - b.sortKey,
+    );
+
+    const classMap = {};
+    records.forEach((r) => {
+      const cls = r.class || "Unknown";
+      if (!classMap[cls]) {
+        classMap[cls] = {
+          class: cls,
+          applications: 0,
+          approved: 0,
+          enrolled: 0,
+        };
+      }
+      classMap[cls].applications++;
+      if (r.status === "Approved") {
+        classMap[cls].approved++;
+        classMap[cls].enrolled++;
+      }
+    });
+    const classWiseData = Object.values(classMap);
+
+    const genderCount = { Male: 0, Female: 0, Other: 0 };
+    records.forEach((r) => {
+      const g = (r.gender || "").toLowerCase();
+      if (g === "male") genderCount.Male++;
+      else if (g === "female") genderCount.Female++;
+      else if (g) genderCount.Other++;
+    });
+
+    const subjectMap = {};
+    records.forEach((r) => {
+      const subjects = String(r.course || r.subject || "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      subjects.forEach((s) => {
+        if (!subjectMap[s]) subjectMap[s] = 0;
+        subjectMap[s]++;
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      stats: {
+        totalApplications: total,
+        approvedApplications: approved,
+        pendingApplications: pending,
+        rejectedApplications: rejected,
+        totalStudents: approved,
+        newStudents: newThisMonth,
+        conversionRate: total > 0 ? Math.round((approved / total) * 100) : 0,
+      },
+      records,
+      monthlyData,
+      classWiseData,
+      genderData: Object.entries(genderCount).map(([k, v]) => ({
+        gender: k,
+        count: v,
+      })),
+      subjectWiseData: Object.entries(subjectMap).map(([k, v]) => ({
+        subject: k,
+        count: v,
+      })),
+    });
+  } catch (error) {
+    console.error("❌ Admission report error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ GET ALL UNIQUE DEPARTMENTS/COURSES
+// =============================================
+app.get("/api/departments/all", async (req, res) => {
+  try {
+    console.log("📥 GET /api/departments/all");
+    const studentsCollection = getCollection("students");
+    const students = await studentsCollection.find({}).toArray();
+
+    const departmentsSet = new Set();
+
+    students.forEach((s) => {
+      // Department field
+      if (s.department && s.department.trim()) {
+        departmentsSet.add(s.department.trim());
+      }
+      // Course names (split by comma)
+      if (s.course) {
+        String(s.course)
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean)
+          .forEach((c) => departmentsSet.add(c));
+      }
+      // Batch
+      if (s.batch && s.batch.trim()) {
+        departmentsSet.add(s.batch.trim());
+      }
+    });
+
+    const departments = Array.from(departmentsSet).sort();
+    console.log(`✅ Found ${departments.length} unique departments/courses`);
+
+    res.json({ success: true, total: departments.length, departments });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get("/api/departments/all", async (req, res) => {
+  const studentsCollection = getCollection("students");
+  const students = await studentsCollection.find({}).toArray();
+  const depts = new Set();
+  students.forEach((s) => {
+    if (s.department) depts.add(s.department);
+    if (s.course) {
+      String(s.course)
+        .split(",")
+        .forEach((c) => depts.add(c.trim()));
+    }
+  });
+  res.json({ success: true, departments: Array.from(depts).filter(Boolean) });
+});
+
+// ✅ Update status only (for approve/reject from Admission Report)
+app.put("/api/admission-report/status/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    console.log("📥 PUT /api/admission-report/status/", id, "→", status);
+
+    if (!["Active", "Pending", "Rejected", "Inactive"].includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status!" });
+    }
+
+    const studentsCollection = getCollection("students");
+    const result = await studentsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status, updatedAt: new Date() } },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    res.json({ success: true, message: "✅ Status updated!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
