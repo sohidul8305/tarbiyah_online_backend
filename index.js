@@ -592,6 +592,76 @@ app.post("/api/attendance-report/bulk-create", (req, res) => {
   }
 });
 
+// =============================================
+// ✅ DEBUG: সব collection-এর sample data
+// =============================================
+app.get("/api/debug-collections", async (req, res) => {
+  try {
+    const results = {
+      students: { count: 0, samples: [] },
+      tazweed: { count: 0, samples: [] },
+      najera: { count: 0, samples: [] },
+    };
+
+    // Students collection
+    const studentsColl = getCollection("students");
+    if (studentsColl) {
+      results.students.count = await studentsColl.countDocuments();
+      const samples = await studentsColl
+        .find({})
+        .project({
+          _id: 1,
+          name: 1,
+          studentId: 1,
+          status: 1,
+          password: 1,
+        })
+        .limit(10)
+        .toArray();
+      results.students.samples = samples;
+    }
+
+    // Tazweed collection
+    const tazweedColl = getCollection("basic_tazweed_students");
+    if (tazweedColl) {
+      results.tazweed.count = await tazweedColl.countDocuments();
+      const samples = await tazweedColl
+        .find({})
+        .project({
+          _id: 1,
+          name: 1,
+          studentId: 1,
+          password: 1,
+        })
+        .limit(10)
+        .toArray();
+      results.tazweed.samples = samples;
+    }
+
+    // Najera collection
+    const najeraColl = getCollection("najera_batch_students");
+    if (najeraColl) {
+      results.najera.count = await najeraColl.countDocuments();
+      const samples = await najeraColl
+        .find({})
+        .project({
+          _id: 1,
+          name: 1,
+          studentId: 1,
+          password: 1,
+        })
+        .limit(10)
+        .toArray();
+      results.najera.samples = samples;
+    }
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error("Debug error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // একদম ওপরের দিকে (যাতে কোনো মিডলওয়্যার বা অথেন্টিকেশন চেক করার আগেই এটি রেসপন্স দেয়)
 app.get("/api/test-data", (req, res) => {
   res.json({ success: true, message: "Server is working perfectly!" });
@@ -1144,6 +1214,7 @@ app.get("/api/support/status", async (req, res) => {
     });
   }
 });
+
 // =============================================
 // ✅ TEST ROUTE
 // =============================================
@@ -1582,25 +1653,16 @@ app.get("/api/debug-all-collections", async (req, res) => {
   }
 });
 // =============================================
-// ✅ APPROVE STUDENT — Admin Student ID দেবে
-// =============================================
-// =============================================
-// ✅ APPROVE STUDENT — Student ID + Password সেট
+// ✅ APPROVE STUDENT — সব collection (students + tazweed + najera)
 // =============================================
 app.put("/api/students/approve/:id", async (req, res) => {
   try {
+    console.log("════════════════════════════════");
     console.log("📥 PUT /api/students/approve/:id");
     console.log("📝 Body:", req.body);
 
     const { id } = req.params;
-    const { studentId, password, roll, enrolledCourses } = req.body;
-
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: "Student ID is required!",
-      });
-    }
+    const { studentId, password, roll } = req.body;
 
     if (!studentId || !studentId.trim()) {
       return res.status(400).json({
@@ -1616,40 +1678,60 @@ app.put("/api/students/approve/:id", async (req, res) => {
       });
     }
 
-    const studentsCollection = getCollection("students");
-    if (!studentsCollection) {
-      return res.status(500).json({
-        success: false,
-        message: "Database collection not found!",
-      });
-    }
+    // ✅ ৩টি collection-এ খুঁজব
+    const collectionNames = [
+      "students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
 
-    const student = await studentsCollection.findOne({
-      _id: new ObjectId(id),
-    });
+    let foundCollection = null;
+    let foundCollectionName = null;
+    let student = null;
+
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+
+      try {
+        const found = await coll.findOne({ _id: new ObjectId(id) });
+        if (found) {
+          foundCollection = coll;
+          foundCollectionName = name;
+          student = found;
+          console.log(`✅ Found in "${name}":`, student.name);
+          break;
+        }
+      } catch (e) {
+        // Invalid ObjectId for this collection — skip
+      }
+    }
 
     if (!student) {
       return res.status(404).json({
         success: false,
-        message: "Student not found!",
+        message: "Student not found in any collection!",
       });
     }
 
-    // ✅ Duplicate check
-    const existingId = await studentsCollection.findOne({
-      studentId: studentId.trim(),
-      _id: { $ne: new ObjectId(id) },
-    });
-
-    if (existingId) {
-      return res.status(400).json({
-        success: false,
-        message: `Student ID "${studentId}" ইতিমধ্যে অন্য একজন ব্যবহার করছে!`,
+    // ✅ Duplicate studentId check — সব collection-এ
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+      const existing = await coll.findOne({
+        studentId: studentId.trim(),
+        _id: { $ne: new ObjectId(id) },
       });
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: `Student ID "${studentId}" ইতিমধ্যে অন্য একজন ব্যবহার করছে!`,
+        });
+      }
     }
 
     // ✅ Update
-    await studentsCollection.updateOne(
+    await foundCollection.updateOne(
       { _id: new ObjectId(id) },
       {
         $set: {
@@ -1659,18 +1741,21 @@ app.put("/api/students/approve/:id", async (req, res) => {
           status: "Active",
           approvedAt: new Date(),
           updatedAt: new Date(),
-          enrolledCourses: enrolledCourses || [],
         },
       },
     );
 
-    console.log(`✅ Student ${student.name} approved`);
+    console.log(
+      `✅ Student ${student.name} approved in "${foundCollectionName}"`,
+    );
     console.log(`🆔 Student ID: ${studentId}`);
+    console.log("════════════════════════════════");
 
     res.status(200).json({
       success: true,
       message: "Student approved successfully!",
       studentId: studentId.trim(),
+      collection: foundCollectionName,
     });
   } catch (error) {
     console.error("❌ Approve Error:", error);
@@ -1680,19 +1765,15 @@ app.put("/api/students/approve/:id", async (req, res) => {
     });
   }
 });
-
 // =============================================
-// ✅ STUDENT LOGIN — Student ID দিয়ে লগইন
-// =============================================
-// =============================================
-// ✅ STUDENT LOGIN — Student ID দিয়ে লগইন
+// ✅ STUDENT LOGIN — সব collection-এ খুঁজবে
 // =============================================
 app.post("/api/students/login", async (req, res) => {
   try {
+    console.log("════════════════════════════════");
     console.log("📥 POST /api/students/login");
     console.log("📤 Body:", req.body);
 
-    // ✅ studentId অথবা username — দুইটাই accept
     const { studentId, username, password } = req.body;
     const loginId = (studentId || username || "").trim();
 
@@ -1703,29 +1784,41 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    const studentsCollection = getCollection("students");
-    if (!studentsCollection) {
-      return res.status(500).json({
-        success: false,
-        message: "Database collection not found!",
+    // ✅ ৩টি collection-এ খুঁজব
+    const collectionNames = [
+      "students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
+
+    const regex = new RegExp("^" + loginId + "$", "i");
+    let student = null;
+    let studentCollectionName = null;
+
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+
+      const found = await coll.findOne({
+        $or: [
+          { studentId: loginId },
+          { studentId: regex },
+          { username: loginId },
+          { username: regex },
+          { roll: loginId },
+        ],
       });
+
+      if (found) {
+        student = found;
+        studentCollectionName = name;
+        console.log(`✅ Found in "${name}":`, student.name);
+        break;
+      }
     }
 
-    // ✅ studentId / username / roll — যেকোনোটা দিয়ে খুঁজব
-    const regex = new RegExp("^" + loginId + "$", "i");
-    const student = await studentsCollection.findOne({
-      $or: [
-        { studentId: loginId },
-        { studentId: regex },
-        { username: loginId },
-        { username: regex },
-        { roll: loginId },
-      ],
-    });
-
-    console.log("📝 Student found:", student ? student.name : "Not found");
-
     if (!student) {
+      console.log("❌ Student not found in any collection");
       return res.status(401).json({
         success: false,
         message:
@@ -1733,8 +1826,8 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ Account Active কিনা
-    if (student.status !== "Active") {
+    // ✅ Active চেক — শুধু students collection-এর জন্য
+    if (studentCollectionName === "students" && student.status !== "Active") {
       return res.status(401).json({
         success: false,
         message:
@@ -1742,7 +1835,7 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ Password check — stored password অথবা default
+    // ✅ Password check
     const storedPassword = student.password || "student123S@";
     if (storedPassword !== password) {
       console.log("❌ Password mismatch");
@@ -1754,12 +1847,16 @@ app.post("/api/students/login", async (req, res) => {
 
     const { password: _, ...studentWithoutPassword } = student;
 
-    console.log(`✅ Student ${student.name} logged in`);
+    console.log(`✅ Login success: ${student.name}`);
+    console.log("════════════════════════════════");
 
     res.status(200).json({
       success: true,
       message: "লগইন সফল!",
-      user: studentWithoutPassword,
+      user: {
+        ...studentWithoutPassword,
+        loginSource: studentCollectionName,
+      },
       token: "student_" + Date.now() + "_" + student._id,
     });
   } catch (error) {
