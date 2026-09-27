@@ -1,51 +1,22 @@
 {
   "batches": [
     {
-      "_id": "1790241185298938",
-      "id": 1790241185298,
+      "_id": "1790505069603185",
+      "id": 1790505069603,
       "name": "Batch06",
-      "course": "Qaida Nuraniyah",
-      "students": 2,
-      "schedule": "09:00AM ",
-      "teacher": "Jubair",
-      "videoUrl": "https://www.youtube.com/watch?v=ijfI176o8Qc",
-      "description": "Good ",
-      "status": "Active",
-      "createdAt": "2026-09-24T09:13:05.298Z",
-      "updatedAt": "2026-09-24T09:15:45.999Z",
-      "videos": [
-        {
-          "title": "class 2",
-          "url": "https://www.youtube.com/watch?v=HtNfPvsn__U",
-          "addedAt": "2026-09-24T09:14:08.077Z"
-        },
-        {
-          "title": "Class 3",
-          "url": "https://www.youtube.com/watch?v=HtNfPvsn__U",
-          "addedAt": "2026-09-24T09:15:45.981Z"
-        }
-      ]
-    },
-    {
-      "_id": "1790241328630975",
-      "id": 1790241328630,
-      "name": "Batch3",
-      "course": "Bakarah Hifz",
+      "course": "Basic Tajweed (Level-1)",
       "students": 30,
-      "schedule": "02:00AM",
+      "schedule": "3:00AM -4:30",
       "teacher": "Jubair ",
-      "videoUrl": "https://www.youtube.com/watch?v=HtNfPvsn__U",
+      "videoUrl": "",
       "description": "Good ",
       "status": "Active",
-      "createdAt": "2026-09-24T09:15:28.630Z",
-      "updatedAt": "2026-09-24T09:16:09.774Z",
-      "videos": [
-        {
-          "title": "Class 3",
-          "url": "https://www.youtube.com/watch?v=HtNfPvsn__U",
-          "addedAt": "2026-09-24T09:16:09.756Z"
-        }
-      ]
+      "studentsList": [],
+      "classesList": [],
+      "materialsList": [],
+      "videos": [],
+      "createdAt": "2026-09-27T10:31:09.603Z",
+      "updatedAt": "2026-09-27T10:31:09.603Z"
     }
   ]
 }

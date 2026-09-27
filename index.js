@@ -1226,26 +1226,7 @@ app.get("/api/test", (req, res) => {
   });
 });
 
-// ✅ GET ALL BATCHES
-app.get("/api/batches/all", (req, res) => {
-  try {
-    console.log("📥 GET /api/batches/all");
-    const data = readBatchesData();
-    const batches = (data.batches || []).sort(
-      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
-    );
-    res.status(200).json({
-      success: true,
-      total: batches.length,
-      batches,
-    });
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ✅ CREATE BATCH
+// ✅ CREATE BATCH — with full LMS fields
 app.post("/api/batches/create", (req, res) => {
   try {
     console.log("📥 POST /api/batches/create");
@@ -1260,6 +1241,11 @@ app.post("/api/batches/create", (req, res) => {
       videoUrl,
       description,
       status,
+      // ✅ LMS fields
+      studentsList,
+      classesList,
+      materialsList,
+      videos,
     } = req.body;
 
     if (!name || !course) {
@@ -1274,14 +1260,21 @@ app.post("/api/batches/create", (req, res) => {
     const newBatch = {
       _id: Date.now().toString() + Math.floor(Math.random() * 1000),
       id: Date.now(),
-      name: name.trim(),
-      course: course.trim(),
-      students: parseInt(students) || 0,
+      name: String(name).trim(),
+      course: String(course).trim(),
+      students: Number(students) || 0,
       schedule: schedule || "",
       teacher: teacher || "",
       videoUrl: videoUrl || "",
       description: description || "",
       status: status || "Active",
+
+      // ✅ LMS arrays (empty if not provided)
+      studentsList: Array.isArray(studentsList) ? studentsList : [],
+      classesList: Array.isArray(classesList) ? classesList : [],
+      materialsList: Array.isArray(materialsList) ? materialsList : [],
+      videos: Array.isArray(videos) ? videos : [],
+
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1302,7 +1295,7 @@ app.post("/api/batches/create", (req, res) => {
   }
 });
 
-// ✅ UPDATE BATCH
+// ✅ UPDATE BATCH — safely handles LMS fields, videos, students arrays
 app.put("/api/batches/update/:id", (req, res) => {
   try {
     console.log("📥 PUT /api/batches/update/:id", req.params.id);
@@ -1318,11 +1311,25 @@ app.put("/api/batches/update/:id", (req, res) => {
       });
     }
 
+    const existing = data.batches[index];
+    const body = { ...req.body };
+    delete body._id; // never let client override _id
+
+    // ✅ students count: accept 0 as valid number
+    let studentsCount = existing.students || 0;
+    if (body.students !== undefined && body.students !== "") {
+      const parsed = Number(body.students);
+      if (!Number.isNaN(parsed)) studentsCount = parsed;
+    }
+    // If studentsList is sent, auto-sync count
+    if (Array.isArray(body.studentsList)) {
+      studentsCount = body.studentsList.length;
+    }
+
     data.batches[index] = {
-      ...data.batches[index],
-      ...req.body,
-      students:
-        parseInt(req.body.students) || data.batches[index].students || 0,
+      ...existing,
+      ...body,
+      students: studentsCount,
       _id: id,
       updatedAt: new Date().toISOString(),
     };
@@ -1655,9 +1662,11 @@ app.get("/api/debug-all-collections", async (req, res) => {
 // =============================================
 // ✅ APPROVE STUDENT — সব collection (students + tazweed + najera)
 // =============================================
+// =============================================
+// ✅ APPROVE STUDENT — ৩টি collection-এ কাজ করবে
+// =============================================
 app.put("/api/students/approve/:id", async (req, res) => {
   try {
-    console.log("════════════════════════════════");
     console.log("📥 PUT /api/students/approve/:id");
     console.log("📝 Body:", req.body);
 
@@ -1678,7 +1687,6 @@ app.put("/api/students/approve/:id", async (req, res) => {
       });
     }
 
-    // ✅ ৩টি collection-এ খুঁজব
     const collectionNames = [
       "students",
       "basic_tazweed_students",
@@ -1689,6 +1697,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
     let foundCollectionName = null;
     let student = null;
 
+    // ✅ ৩টি collection-এ খুঁজব
     for (const name of collectionNames) {
       const coll = getCollection(name);
       if (!coll) continue;
@@ -1703,7 +1712,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
           break;
         }
       } catch (e) {
-        // Invalid ObjectId for this collection — skip
+        // Invalid ObjectId — skip
       }
     }
 
@@ -1745,11 +1754,8 @@ app.put("/api/students/approve/:id", async (req, res) => {
       },
     );
 
-    console.log(
-      `✅ Student ${student.name} approved in "${foundCollectionName}"`,
-    );
+    console.log(`✅ Approved in "${foundCollectionName}"`);
     console.log(`🆔 Student ID: ${studentId}`);
-    console.log("════════════════════════════════");
 
     res.status(200).json({
       success: true,
@@ -1767,6 +1773,9 @@ app.put("/api/students/approve/:id", async (req, res) => {
 });
 // =============================================
 // ✅ STUDENT LOGIN — সব collection-এ খুঁজবে
+// =============================================
+// =============================================
+// ✅ STUDENT LOGIN — ৩টি collection-এ খুঁজবে
 // =============================================
 app.post("/api/students/login", async (req, res) => {
   try {
@@ -1835,7 +1844,7 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ Password check
+    // ✅ Password check — stored password অথবা default
     const storedPassword = student.password || "student123S@";
     if (storedPassword !== password) {
       console.log("❌ Password mismatch");
@@ -1847,7 +1856,7 @@ app.post("/api/students/login", async (req, res) => {
 
     const { password: _, ...studentWithoutPassword } = student;
 
-    console.log(`✅ Login success: ${student.name}`);
+    console.log(`✅ Login success: ${student.name} (${studentCollectionName})`);
     console.log("════════════════════════════════");
 
     res.status(200).json({
