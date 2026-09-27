@@ -1522,13 +1522,78 @@ app.post("/api/students/register/student", async (req, res) => {
   }
 });
 
-// APPROVE STUDENT
-// APPROVE STUDENT
+// =============================================
+// ✅ DEBUG: সব collections এর count দেখা
+// =============================================
+app.get("/api/debug-all-collections", async (req, res) => {
+  try {
+    console.log("📥 GET /api/debug-all-collections");
+
+    const studentsCollection = getCollection("students");
+    const tazweedCollection = getCollection("basic_tazweed_students");
+    const najeraCollection = getCollection("najera_batch_students");
+
+    if (!studentsCollection) {
+      return res.status(500).json({
+        success: false,
+        message: "students collection পাওয়া যায়নি!",
+      });
+    }
+
+    // Count সব
+    const studentsCount = await studentsCollection.countDocuments();
+    const tazweedCount = tazweedCollection
+      ? await tazweedCollection.countDocuments()
+      : 0;
+    const najeraCount = najeraCollection
+      ? await najeraCollection.countDocuments()
+      : 0;
+
+    // Sample data (first 2)
+    const studentsSample = await studentsCollection.find({}).limit(2).toArray();
+    const tazweedSample = tazweedCollection
+      ? await tazweedCollection.find({}).limit(2).toArray()
+      : [];
+    const najeraSample = najeraCollection
+      ? await najeraCollection.find({}).limit(2).toArray()
+      : [];
+
+    res.json({
+      success: true,
+      counts: {
+        students: studentsCount,
+        basicTazweed: tazweedCount,
+        najeraBatch: najeraCount,
+        total: studentsCount + tazweedCount + najeraCount,
+      },
+      samples: {
+        students: studentsSample,
+        basicTazweed: tazweedSample,
+        najeraBatch: najeraSample,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Debug Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      stack: error.stack,
+    });
+  }
+});
+// =============================================
+// ✅ APPROVE STUDENT — Admin Student ID দেবে
+// =============================================
+// =============================================
+// ✅ APPROVE STUDENT — Student ID + Password সেট
+// =============================================
 app.put("/api/students/approve/:id", async (req, res) => {
   try {
-    console.log("📥 PUT /api/students/approve/:id called");
+    console.log("📥 PUT /api/students/approve/:id");
+    console.log("📝 Body:", req.body);
+
     const { id } = req.params;
-    const { username, password, roll, enrolledCourses } = req.body;
+    const { studentId, password, roll, enrolledCourses } = req.body;
 
     if (!id) {
       return res.status(400).json({
@@ -1537,10 +1602,17 @@ app.put("/api/students/approve/:id", async (req, res) => {
       });
     }
 
-    if (!username || !password) {
+    if (!studentId || !studentId.trim()) {
       return res.status(400).json({
         success: false,
-        message: "Username and password are required!",
+        message: "Student ID আবশ্যক!",
+      });
+    }
+
+    if (!password || !password.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Password আবশ্যক!",
       });
     }
 
@@ -1563,24 +1635,26 @@ app.put("/api/students/approve/:id", async (req, res) => {
       });
     }
 
-    const existingUser = await studentsCollection.findOne({
-      username: username,
+    // ✅ Duplicate check
+    const existingId = await studentsCollection.findOne({
+      studentId: studentId.trim(),
       _id: { $ne: new ObjectId(id) },
     });
 
-    if (existingUser) {
+    if (existingId) {
       return res.status(400).json({
         success: false,
-        message: "এই ইউজারনেম ইতিমধ্যে ব্যবহার করা হচ্ছে!",
+        message: `Student ID "${studentId}" ইতিমধ্যে অন্য একজন ব্যবহার করছে!`,
       });
     }
 
+    // ✅ Update
     await studentsCollection.updateOne(
       { _id: new ObjectId(id) },
       {
         $set: {
-          username: username,
-          password: password,
+          studentId: studentId.trim(),
+          password: password.trim(),
           roll: roll || "",
           status: "Active",
           approvedAt: new Date(),
@@ -1591,11 +1665,12 @@ app.put("/api/students/approve/:id", async (req, res) => {
     );
 
     console.log(`✅ Student ${student.name} approved`);
-    console.log(`📚 Enrolled Courses:`, enrolledCourses);
+    console.log(`🆔 Student ID: ${studentId}`);
 
     res.status(200).json({
       success: true,
       message: "Student approved successfully!",
+      studentId: studentId.trim(),
     });
   } catch (error) {
     console.error("❌ Approve Error:", error);
@@ -1607,24 +1682,28 @@ app.put("/api/students/approve/:id", async (req, res) => {
 });
 
 // =============================================
-// ✅ STUDENT LOGIN (Fixed)
+// ✅ STUDENT LOGIN — Student ID দিয়ে লগইন
+// =============================================
+// =============================================
+// ✅ STUDENT LOGIN — Student ID দিয়ে লগইন
 // =============================================
 app.post("/api/students/login", async (req, res) => {
   try {
-    console.log("📥 POST /api/students/login called");
-    console.log("📤 Received Body:", req.body);
+    console.log("📥 POST /api/students/login");
+    console.log("📤 Body:", req.body);
 
-    const { username, password } = req.body;
+    // ✅ studentId অথবা username — দুইটাই accept
+    const { studentId, username, password } = req.body;
+    const loginId = (studentId || username || "").trim();
 
-    if (!username || !password) {
+    if (!loginId || !password) {
       return res.status(400).json({
         success: false,
-        message: "ইউজারনেম এবং পাসওয়ার্ড আবশ্যক!",
+        message: "স্টুডেন্ট আইডি এবং পাসওয়ার্ড আবশ্যক!",
       });
     }
 
     const studentsCollection = getCollection("students");
-
     if (!studentsCollection) {
       return res.status(500).json({
         success: false,
@@ -1632,9 +1711,16 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ Username দিয়ে Student খুঁজুন (case insensitive)
+    // ✅ studentId / username / roll — যেকোনোটা দিয়ে খুঁজব
+    const regex = new RegExp("^" + loginId + "$", "i");
     const student = await studentsCollection.findOne({
-      username: { $regex: new RegExp("^" + username + "$", "i") },
+      $or: [
+        { studentId: loginId },
+        { studentId: regex },
+        { username: loginId },
+        { username: regex },
+        { roll: loginId },
+      ],
     });
 
     console.log("📝 Student found:", student ? student.name : "Not found");
@@ -1643,11 +1729,11 @@ app.post("/api/students/login", async (req, res) => {
       return res.status(401).json({
         success: false,
         message:
-          "ইউজারনেম বা পাসওয়ার্ড ভুল! অথবা আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি।",
+          "স্টুডেন্ট আইডি বা পাসওয়ার্ড ভুল! অথবা আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি।",
       });
     }
 
-    // ✅ Check if student is approved
+    // ✅ Account Active কিনা
     if (student.status !== "Active") {
       return res.status(401).json({
         success: false,
@@ -1656,233 +1742,19 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ Password চেক করুন
-    if (student.password !== password) {
+    // ✅ Password check — stored password অথবা default
+    const storedPassword = student.password || "student123S@";
+    if (storedPassword !== password) {
       console.log("❌ Password mismatch");
       return res.status(401).json({
         success: false,
-        message: "ইউজারনেম বা পাসওয়ার্ড ভুল!",
+        message: "স্টুডেন্ট আইডি বা পাসওয়ার্ড ভুল!",
       });
     }
 
-    // =============================================
-    // ✅ TEACHER PROFILE ROUTES (JSON File Based)
-    // =============================================
-
-    // ✅ Get Teacher Profile
-    app.get("/api/teacher/profile/:email", async (req, res) => {
-      try {
-        const { email } = req.params;
-        console.log("📥 GET /api/teacher/profile/:email", email);
-
-        if (!email) {
-          return res.status(400).json({
-            success: false,
-            message: "Email is required!",
-          });
-        }
-
-        const PROFILE_FILE = path.join(__dirname, "teacher_profiles.json");
-        let profiles = {};
-
-        if (fs.existsSync(PROFILE_FILE)) {
-          try {
-            const data = fs.readFileSync(PROFILE_FILE, "utf8");
-            profiles = JSON.parse(data);
-          } catch (error) {
-            profiles = {};
-          }
-        }
-
-        // যদি প্রোফাইল থাকে
-        if (profiles[email]) {
-          return res.json({
-            success: true,
-            teacher: profiles[email],
-          });
-        }
-
-        // ডিফল্ট প্রোফাইল
-        const defaultProfile = {
-          name: "শায়খ ড. মাওলানা মুহাম্মদ আব্দুল্লাহ",
-          title:
-            "প্রধান উস্তাদ ও বিভাগীয় প্রধান - তারবিয়াহ আলেমিয়াহ প্রোগ্রাম",
-          email: email,
-          phone: "+৮৮০ ১৭০০ ১২৩৪৫৬",
-          bio: "আল-আজহার বিশ্ববিদ্যালয় থেকে হাদিস ও শরিয়াহর ওপর উচ্চতর ডিগ্রি অর্জন করেছেন। দীর্ঘ ১৫ বছরেরও বেশি সময় ধরে কওমি মাদরাসা এবং অনলাইন প্ল্যাটফর্মে ইসলামিক স্টাডিজ ও আরবি ভাষা শিক্ষাদানে নিয়োজিত আছেন।",
-          joinDate: "জানুয়ারি ২০২০",
-          totalStudents: "১৫০+",
-          totalCourses: "৮টি",
-          rating: "৪.৯",
-          photo: "",
-          education: [
-            {
-              degree: "পিএইচডি (Hadith & Islamic Studies)",
-              institution: "আল-আজহার বিশ্ববিদ্যালয়, মিসর",
-              year: "২০১৮",
-            },
-            {
-              degree: "মাস্টার্স (Tafseer & Quranic Sciences)",
-              institution: "ইসলামী বিশ্ববিদ্যালয়, কুষ্টিয়া",
-              year: "২০১২",
-            },
-            {
-              degree: "দাওরায়ে হাদিস (তাকমীল)",
-              institution: "জামিয়া আরামিয়া দারুল উলুম",
-              year: "২০০৯",
-            },
-          ],
-          expertise: [
-            "হাদিস শাস্ত্র",
-            "উসূলে ফিকহ",
-            "আরবি ব্যাকরণ (নাহু-সরফ)",
-            "তাফসিরুল কুরআন",
-          ],
-          courses: [
-            {
-              title: "তারবিয়াহ আলেমিয়াহ প্রোগ্রাম",
-              students: "৪৫ জন",
-              duration: "৪ বছর",
-              icon: "📚",
-            },
-            {
-              title: "ডিপ্লোমা ইন ইসলামিক স্টাডিজ",
-              students: "৬০ জন",
-              duration: "১ বছর",
-              icon: "🎓",
-            },
-            {
-              title: "কুরআন ফর এল্ডারস",
-              students: "২৫ জন",
-              duration: "৬ মাস",
-              icon: "📖",
-            },
-          ],
-          achievements: [
-            "বেস্ট অনলাইন শিক্ষক পুরস্কার ২০২৩",
-            "হাদিস গবেষণায় স্বর্ণপদক - ২০১৮",
-            "শিক্ষাক্ষেত্রে অবদানের জন্য সম্মাননা - ২০২১",
-          ],
-        };
-
-        res.json({
-          success: true,
-          teacher: defaultProfile,
-        });
-      } catch (error) {
-        console.error("❌ Error:", error);
-        res.status(500).json({
-          success: false,
-          message: error.message,
-        });
-      }
-    });
-
-    // ✅ Update Teacher Profile
-    app.put("/api/teacher/profile/:email", async (req, res) => {
-      try {
-        const { email } = req.params;
-        console.log("📥 PUT /api/teacher/profile/:email", email);
-        console.log("📝 Body:", req.body);
-
-        if (!email) {
-          return res.status(400).json({
-            success: false,
-            message: "Email is required!",
-          });
-        }
-
-        const PROFILE_FILE = path.join(__dirname, "teacher_profiles.json");
-        let profiles = {};
-
-        if (fs.existsSync(PROFILE_FILE)) {
-          try {
-            const data = fs.readFileSync(PROFILE_FILE, "utf8");
-            profiles = JSON.parse(data);
-          } catch (error) {
-            profiles = {};
-          }
-        }
-
-        profiles[email] = {
-          ...req.body,
-          email: email,
-          updatedAt: new Date().toISOString(),
-        };
-
-        fs.writeFileSync(PROFILE_FILE, JSON.stringify(profiles, null, 2));
-        console.log("✅ Profile updated for:", email);
-
-        res.json({
-          success: true,
-          message: "প্রোফাইল আপডেট হয়েছে!",
-          teacher: profiles[email],
-        });
-      } catch (error) {
-        console.error("❌ Error:", error);
-        res.status(500).json({
-          success: false,
-          message: error.message,
-        });
-      }
-    });
-
-    // ✅ Update Profile Photo
-    app.post("/api/teacher/profile/:email/photo", async (req, res) => {
-      try {
-        const { email } = req.params;
-        const { photoUrl } = req.body;
-
-        if (!email || !photoUrl) {
-          return res.status(400).json({
-            success: false,
-            message: "Email and photo URL are required!",
-          });
-        }
-
-        const PROFILE_FILE = path.join(__dirname, "teacher_profiles.json");
-        let profiles = {};
-
-        if (fs.existsSync(PROFILE_FILE)) {
-          try {
-            const data = fs.readFileSync(PROFILE_FILE, "utf8");
-            profiles = JSON.parse(data);
-          } catch (error) {
-            profiles = {};
-          }
-        }
-
-        if (profiles[email]) {
-          profiles[email].photo = photoUrl;
-          profiles[email].updatedAt = new Date().toISOString();
-        } else {
-          profiles[email] = {
-            email: email,
-            photo: photoUrl,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-
-        fs.writeFileSync(PROFILE_FILE, JSON.stringify(profiles, null, 2));
-
-        res.json({
-          success: true,
-          message: "ছবি আপডেট হয়েছে!",
-          photo: photoUrl,
-        });
-      } catch (error) {
-        console.error("❌ Error:", error);
-        res.status(500).json({
-          success: false,
-          message: error.message,
-        });
-      }
-    });
-
-    // ✅ Remove password from response
     const { password: _, ...studentWithoutPassword } = student;
 
-    console.log(`✅ Student ${student.name} logged in successfully`);
+    console.log(`✅ Student ${student.name} logged in`);
 
     res.status(200).json({
       success: true,
@@ -1891,14 +1763,13 @@ app.post("/api/students/login", async (req, res) => {
       token: "student_" + Date.now() + "_" + student._id,
     });
   } catch (error) {
-    console.error("❌ Student Login Error:", error);
+    console.error("❌ Login Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 });
-
 // DELETE STUDENT
 app.delete("/api/students/delete/:id", async (req, res) => {
   try {
