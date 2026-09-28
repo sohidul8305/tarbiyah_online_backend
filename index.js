@@ -2875,24 +2875,70 @@ app.get("/api/students/my-courses/:studentId", async (req, res) => {
 // =============================================
 
 // GET ALL
-app.get("/api/today-classes", async (req, res) => {
+// CREATE
+app.post("/api/today-classes", async (req, res) => {
   try {
-    console.log("📥 GET /api/today-classes");
+    console.log("📥 POST /api/today-classes");
+    console.log("📝 Body:", req.body);
+
+    const {
+      name,
+      subject,
+      class: classLevel,
+      teacher,
+      time,
+      days,
+      room,
+      status,
+      link,
+      department,
+      totalStudents,
+    } = req.body;
+
+    if (!name || !subject || !teacher || !time) {
+      return res.status(400).json({
+        success: false,
+        message: "Class Name, Subject, Teacher, and Time are required!",
+      });
+    }
+
     const data = readClassesData();
-    const classes = data.classes.sort(
-      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
-    );
-    res.status(200).json({
+
+    const newClass = {
+      _id: Date.now().toString(),
+      id: data.classes.length + 1,
+      name,
+      subject,
+      class: classLevel || "",
+      teacher,
+      time,
+      days: days || [],
+      room: room || "",
+      status: status || "Upcoming",
+      link: link || "",
+      department: department || "",
+      students: parseInt(totalStudents) || 0,
+      totalStudents: parseInt(totalStudents) || 0,
+      attendance: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.classes.push(newClass);
+    writeClassesData(data);
+
+    console.log("✅ Class created:", newClass.name);
+
+    res.status(201).json({
       success: true,
-      total: classes.length,
-      classes: classes,
+      message: "Class created successfully!",
+      class: newClass,
     });
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 // CREATE
 app.post("/api/today-classes", async (req, res) => {
   try {
@@ -2928,8 +2974,8 @@ app.post("/api/today-classes", async (req, res) => {
       day: day || "Saturday",
       time: String(time).trim(),
       gender: gender || "Male",
-      teachers: teachersList, // ✅ array
-      teacher: teachersList[0] || "", // ✅ backward compat
+      teachers: teachersList, // ✅ add this
+      teacher: teachersList[0] || "", // backward compat
       meetingLink: meetingLink || "",
       attendance: [],
       createdAt: new Date(),
