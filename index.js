@@ -5695,19 +5695,8 @@ app.use("/api/lessons", lessonRoutes);
 app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/admin", adminRoutes);
 
 // app.use("/api/admin-profile", adminProfileRoutes);
-
-// =============================================
-// ✅ 404 HANDLER
-// =============================================
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route not found: ${req.method} ${req.url}`,
-  });
-});
 
 // =============================================
 // ✅ BATCH MATERIALS — MongoDB Collection (batch_materials)
@@ -5901,6 +5890,15 @@ app.get("/api/batch-materials/stats/:batchId", async (req, res) => {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
+});
+// =============================================
+// ✅ 404 HANDLER
+// =============================================
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.url}`,
+  });
 });
 // =============================================
 // ✅ ERROR HANDLER
