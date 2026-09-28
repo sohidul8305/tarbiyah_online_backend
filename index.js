@@ -2923,23 +2923,17 @@ app.post("/api/today-classes", async (req, res) => {
     const data = readClassesData();
 
     const newClass = {
-      _id: Date.now().toString(),
-      id: data.classes.length + 1,
-      name,
-      subject,
-      class: classLevel || "",
-      teacher,
-      time,
-      days: days || [],
-      room: room || "",
-      status: status || "Upcoming",
-      link: link || "",
-      department: department || "",
-      students: parseInt(totalStudents) || 0,
-      totalStudents: parseInt(totalStudents) || 0,
-      attendance: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      batchId: String(batchId),
+      name: String(name).trim(),
+      day: day || "Saturday",
+      time: String(time).trim(),
+      gender: gender || "Male",
+      teachers: teachersList, // ✅ array
+      teacher: teachersList[0] || "", // ✅ backward compat
+      meetingLink: meetingLink || "",
+      attendance: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     data.classes.push(newClass);
@@ -5477,14 +5471,15 @@ app.post("/api/batch-classes/create", async (req, res) => {
     console.log("📥 POST /api/batch-classes/create");
     console.log("📝 Body:", req.body);
 
-    const { batchId, name, day, time, gender, teacher, meetingLink } = req.body;
+    const { batchId, name, day, time, gender, teachers, teacher, meetingLink } =
+      req.body;
 
-    if (!batchId || !name || !time) {
-      return res.status(400).json({
-        success: false,
-        message: "Batch ID, Class Name এবং Time আবশ্যক!",
-      });
-    }
+    // ✅ Support both formats (backward compat)
+    const teachersList = Array.isArray(teachers)
+      ? teachers.filter(Boolean)
+      : teacher
+        ? [teacher]
+        : [];
 
     const coll = getCollection("batch_classes");
     if (!coll) {
@@ -5550,6 +5545,15 @@ app.put("/api/batch-classes/update/:id", async (req, res) => {
     const updateData = { ...req.body, updatedAt: new Date() };
     delete updateData._id;
     delete updateData.batchId;
+
+    // ✅ Auto-sync teacher field with teachers array (backward compat)
+    if (Array.isArray(updateData.teachers)) {
+      updateData.teachers = updateData.teachers.filter(Boolean);
+      updateData.teacher = updateData.teachers[0] || "";
+    } else if (updateData.teacher) {
+      // If only old teacher field sent
+      updateData.teachers = [updateData.teacher];
+    }
 
     const result = await coll.updateOne(
       { _id: new ObjectId(id) },
