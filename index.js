@@ -5891,6 +5891,137 @@ app.get("/api/batch-materials/stats/:batchId", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// =============================================
+// ✅ BATCH VIDEOS — MongoDB Collection (batch_videos)
+// =============================================
+
+// ✅ CREATE video
+app.post("/api/batch-videos/create", async (req, res) => {
+  try {
+    console.log("📥 POST /api/batch-videos/create");
+    console.log("📝 Body:", req.body);
+
+    const { batchId, title, url } = req.body;
+
+    if (!batchId || !title || !url) {
+      return res.status(400).json({
+        success: false,
+        message: "Batch ID, Title এবং URL আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("batch_videos");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const newVideo = {
+      batchId: String(batchId),
+      title: String(title).trim(),
+      url: String(url).trim(),
+      addedAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await coll.insertOne(newVideo);
+    console.log("✅ Video created:", result.insertedId);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Video added successfully!",
+      video: { ...newVideo, _id: result.insertedId },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET all videos (filter by batchId)
+app.get("/api/batch-videos/all", async (req, res) => {
+  try {
+    const { batchId } = req.query;
+    console.log("📥 GET /api/batch-videos/all | batchId:", batchId || "All");
+
+    const coll = getCollection("batch_videos");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const query = batchId ? { batchId: String(batchId) } : {};
+    const videos = await coll.find(query).sort({ addedAt: -1 }).toArray();
+
+    console.log(`✅ Found ${videos.length} videos`);
+    res.status(200).json({ success: true, total: videos.length, videos });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE video
+app.put("/api/batch-videos/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/batch-videos/update/", id);
+
+    const coll = getCollection("batch_videos");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+    delete updateData.batchId;
+
+    const result = await coll.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: new ObjectId(id) });
+    res.status(200).json({ success: true, video: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE single video
+app.delete("/api/batch-videos/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/batch-videos/delete/", id);
+
+    const coll = getCollection("batch_videos");
+    const result = await coll.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE all videos of a batch
+app.delete("/api/batch-videos/delete-by-batch/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const coll = getCollection("batch_videos");
+    const result = await coll.deleteMany({ batchId: String(batchId) });
+    console.log(
+      `✅ Deleted ${result.deletedCount} videos for batch ${batchId}`,
+    );
+    res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // =============================================
 // ✅ 404 HANDLER
 // =============================================
