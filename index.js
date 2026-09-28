@@ -1349,6 +1349,18 @@ app.put("/api/batches/update/:id", (req, res) => {
   }
 });
 
+// ✅ DELETE ALL students of a batch (when deleting batch)
+app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const coll = getCollection("batch_students");
+    const result = await coll.deleteMany({ batchId: String(batchId) });
+    res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ CREATE batch student
 app.post("/api/batch-students/create", async (req, res) => {
   try {
@@ -5502,6 +5514,179 @@ app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
 // =============================================
 // ✅ API Routes
 // =============================================
+
+// =============================================
+// ✅ BATCH CLASSES — MongoDB Collection (batch_classes)
+// =============================================
+
+// ✅ CREATE class
+app.post("/api/batch-classes/create", async (req, res) => {
+  try {
+    console.log("📥 POST /api/batch-classes/create");
+    console.log("📝 Body:", req.body);
+
+    const { batchId, name, day, time, gender, teacher, meetingLink } = req.body;
+
+    if (!batchId || !name || !time) {
+      return res.status(400).json({
+        success: false,
+        message: "Batch ID, Class Name এবং Time আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("batch_classes");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const newClass = {
+      batchId: String(batchId),
+      name: String(name).trim(),
+      day: day || "Saturday",
+      time: String(time).trim(),
+      gender: gender || "Male",
+      teacher: teacher || "",
+      meetingLink: meetingLink || "",
+      attendance: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await coll.insertOne(newClass);
+    console.log("✅ Class created:", result.insertedId);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Class added successfully!",
+      class: { ...newClass, _id: result.insertedId },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET all classes (filter by batchId)
+app.get("/api/batch-classes/all", async (req, res) => {
+  try {
+    const { batchId } = req.query;
+    console.log("📥 GET /api/batch-classes/all | batchId:", batchId || "All");
+
+    const coll = getCollection("batch_classes");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const query = batchId ? { batchId: String(batchId) } : {};
+    const classes = await coll.find(query).sort({ createdAt: 1 }).toArray();
+
+    console.log(`✅ Found ${classes.length} classes`);
+    res.status(200).json({ success: true, total: classes.length, classes });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE class
+app.put("/api/batch-classes/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/batch-classes/update/", id);
+
+    const coll = getCollection("batch_classes");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+    delete updateData.batchId;
+
+    const result = await coll.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: new ObjectId(id) });
+    res.status(200).json({ success: true, class: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE class
+app.delete("/api/batch-classes/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/batch-classes/delete/", id);
+
+    const coll = getCollection("batch_classes");
+    const result = await coll.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE all classes of a batch
+app.delete("/api/batch-classes/delete-by-batch/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const coll = getCollection("batch_classes");
+    const result = await coll.deleteMany({ batchId: String(batchId) });
+    res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ SAVE attendance for a class + date
+app.put("/api/batch-classes/attendance/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, records } = req.body;
+
+    if (!date || !records) {
+      return res.status(400).json({
+        success: false,
+        message: "Date এবং Records আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("batch_classes");
+    const cls = await coll.findOne({ _id: new ObjectId(id) });
+    if (!cls) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Class not found!" });
+    }
+
+    const otherAtt = (cls.attendance || []).filter((a) => a.date !== date);
+    const newAtt = [
+      ...otherAtt,
+      { date, records, markedAt: new Date().toISOString() },
+    ];
+
+    await coll.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { attendance: newAtt, updatedAt: new Date() } },
+    );
+
+    console.log("✅ Attendance saved for class:", id, "date:", date);
+    res.status(200).json({ success: true, message: "✅ Attendance saved!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 app.use("/api/auth", authRoutes);
 // app.use("/api/courses", courseRoutes); //
 app.use("/api/assignments", assignmentRoutes);
@@ -5510,6 +5695,8 @@ app.use("/api/lessons", lessonRoutes);
 app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin", adminRoutes);
+
 // app.use("/api/admin-profile", adminProfileRoutes);
 
 // =============================================
