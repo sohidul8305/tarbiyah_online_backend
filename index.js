@@ -1361,54 +1361,6 @@ app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
   }
 });
 
-// ✅ CREATE batch student
-app.post("/api/batch-students/create", async (req, res) => {
-  try {
-    console.log("📥 POST /api/batch-students/create");
-    console.log("📝 Body:", req.body);
-
-    const { batchId, name, studentId, course, paymentStatus } = req.body;
-
-    if (!batchId || !name) {
-      return res.status(400).json({
-        success: false,
-        message: "Batch ID এবং Student Name আবশ্যক!",
-      });
-    }
-
-    const coll = getCollection("batch_students");
-    if (!coll) {
-      return res.status(500).json({ success: false, message: "DB not found!" });
-    }
-
-    const newStudent = {
-      batchId: String(batchId),
-      name: String(name).trim(),
-      studentId:
-        (studentId && String(studentId).trim()) ||
-        `S-${Date.now().toString().slice(-5)}`,
-      course: course || "",
-      paymentStatus: paymentStatus || "Unpaid",
-      status: "Active",
-      paidMonths: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    const result = await coll.insertOne(newStudent);
-    console.log("✅ Batch student created:", result.insertedId);
-
-    res.status(201).json({
-      success: true,
-      message: "✅ Student added to database!",
-      student: { ...newStudent, _id: result.insertedId },
-    });
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
 // ✅ UPDATE batch student
 app.put("/api/batch-students/update/:id", async (req, res) => {
   try {
@@ -5892,6 +5844,56 @@ app.get("/api/batch-materials/stats/:batchId", async (req, res) => {
   }
 });
 
+// ✅ CREATE batch student
+app.post("/api/batch-students/create", async (req, res) => {
+  try {
+    console.log("📥 POST /api/batch-students/create");
+    console.log("📝 Body:", req.body);
+
+    const { batchId, name, studentId, phone, country, course, paymentStatus } =
+      req.body;
+
+    if (!batchId || !name) {
+      return res.status(400).json({
+        success: false,
+        message: "Batch ID এবং Student Name আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("batch_students");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const newStudent = {
+      batchId: String(batchId),
+      name: String(name).trim(),
+      studentId:
+        (studentId && String(studentId).trim()) ||
+        `S-${Date.now().toString().slice(-5)}`,
+      phone: phone || "",
+      country: country || "BD",
+      course: course || "",
+      paymentStatus: paymentStatus || "Unpaid",
+      status: "Active",
+      paidMonths: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await coll.insertOne(newStudent);
+    console.log("✅ Batch student created:", result.insertedId);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Student added to database!",
+      student: { ...newStudent, _id: result.insertedId },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // =============================================
 // ✅ BATCH VIDEOS — MongoDB Collection (batch_videos)
 // =============================================
