@@ -5710,6 +5710,199 @@ app.use((req, res) => {
 });
 
 // =============================================
+// ✅ BATCH MATERIALS — MongoDB Collection (batch_materials)
+// Exam / Quiz / PDF upload for each batch
+// =============================================
+
+// ✅ CREATE material
+app.post("/api/batch-materials/create", async (req, res) => {
+  try {
+    console.log("📥 POST /api/batch-materials/create");
+    console.log("📝 Body:", req.body);
+
+    const { batchId, type, title, url, date, classId, marks, totalMarks } =
+      req.body;
+
+    if (!batchId || !type || !title || !url) {
+      return res.status(400).json({
+        success: false,
+        message: "Batch ID, Type, Title এবং URL/File আবশ্যক!",
+      });
+    }
+
+    if (!["exam", "quiz", "pdf"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Type must be 'exam', 'quiz' or 'pdf'",
+      });
+    }
+
+    const coll = getCollection("batch_materials");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const newMaterial = {
+      batchId: String(batchId),
+      type,
+      title: String(title).trim(),
+      url: String(url).trim(),
+      date: date || new Date().toISOString().split("T")[0],
+      classId: classId || null,
+      marks:
+        marks === "" || marks === null || marks === undefined
+          ? null
+          : Number(marks),
+      totalMarks:
+        totalMarks === "" || totalMarks === null || totalMarks === undefined
+          ? null
+          : Number(totalMarks),
+      addedAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await coll.insertOne(newMaterial);
+    console.log("✅ Material created:", result.insertedId);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Material uploaded successfully!",
+      material: { ...newMaterial, _id: result.insertedId },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET all materials (filter by batchId, type, classId)
+app.get("/api/batch-materials/all", async (req, res) => {
+  try {
+    const { batchId, type, classId } = req.query;
+    console.log(
+      "📥 GET /api/batch-materials/all | batchId:",
+      batchId || "All",
+      "| type:",
+      type || "All",
+    );
+
+    const coll = getCollection("batch_materials");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const query = {};
+    if (batchId) query.batchId = String(batchId);
+    if (type) query.type = type;
+    if (classId) query.classId = classId;
+
+    const materials = await coll.find(query).sort({ addedAt: -1 }).toArray();
+
+    console.log(`✅ Found ${materials.length} materials`);
+    res.status(200).json({
+      success: true,
+      total: materials.length,
+      materials,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE material
+app.put("/api/batch-materials/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/batch-materials/update/", id);
+
+    const coll = getCollection("batch_materials");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+    delete updateData.batchId;
+
+    const result = await coll.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: new ObjectId(id) });
+    res.status(200).json({ success: true, material: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE single material
+app.delete("/api/batch-materials/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/batch-materials/delete/", id);
+
+    const coll = getCollection("batch_materials");
+    const result = await coll.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE all materials of a batch (cascade delete)
+app.delete(
+  "/api/batch-materials/delete-by-batch/:batchId",
+  async (req, res) => {
+    try {
+      const { batchId } = req.params;
+      const coll = getCollection("batch_materials");
+      const result = await coll.deleteMany({ batchId: String(batchId) });
+      console.log(
+        `✅ Deleted ${result.deletedCount} materials for batch ${batchId}`,
+      );
+      res.status(200).json({ success: true, deleted: result.deletedCount });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+);
+
+// ✅ STATS — count by type for a batch
+app.get("/api/batch-materials/stats/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const coll = getCollection("batch_materials");
+
+    const [pdfCount, quizCount, examCount] = await Promise.all([
+      coll.countDocuments({ batchId: String(batchId), type: "pdf" }),
+      coll.countDocuments({ batchId: String(batchId), type: "quiz" }),
+      coll.countDocuments({ batchId: String(batchId), type: "exam" }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        pdf: pdfCount,
+        quiz: quizCount,
+        exam: examCount,
+        total: pdfCount + quizCount + examCount,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+// =============================================
 // ✅ ERROR HANDLER
 // =============================================
 app.use(errorHandler);
