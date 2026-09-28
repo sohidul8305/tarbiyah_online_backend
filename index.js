@@ -1349,6 +1349,172 @@ app.put("/api/batches/update/:id", (req, res) => {
   }
 });
 
+// ✅ CREATE batch student
+app.post("/api/batch-students/create", async (req, res) => {
+  try {
+    console.log("📥 POST /api/batch-students/create");
+    console.log("📝 Body:", req.body);
+
+    const { batchId, name, studentId, course, paymentStatus } = req.body;
+
+    if (!batchId || !name) {
+      return res.status(400).json({
+        success: false,
+        message: "Batch ID এবং Student Name আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("batch_students");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const newStudent = {
+      batchId: String(batchId),
+      name: String(name).trim(),
+      studentId:
+        (studentId && String(studentId).trim()) ||
+        `S-${Date.now().toString().slice(-5)}`,
+      course: course || "",
+      paymentStatus: paymentStatus || "Unpaid",
+      status: "Active",
+      paidMonths: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await coll.insertOne(newStudent);
+    console.log("✅ Batch student created:", result.insertedId);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Student added to database!",
+      student: { ...newStudent, _id: result.insertedId },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE batch student
+app.put("/api/batch-students/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/batch-students/update/", id);
+
+    const coll = getCollection("batch_students");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+
+    const result = await coll.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: new ObjectId(id) });
+    res.status(200).json({ success: true, student: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE batch student
+app.delete("/api/batch-students/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/batch-students/delete/", id);
+
+    const coll = getCollection("batch_students");
+    const result = await coll.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE ALL students of a batch (when deleting batch)
+app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const coll = getCollection("batch_students");
+    const result = await coll.deleteMany({ batchId: String(batchId) });
+    res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE batch student
+app.put("/api/batch-students/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/batch-students/update/", id);
+
+    const coll = getCollection("batch_students");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+
+    const result = await coll.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: new ObjectId(id) });
+    res.status(200).json({ success: true, student: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE batch student
+app.delete("/api/batch-students/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/batch-students/delete/", id);
+
+    const coll = getCollection("batch_students");
+    const result = await coll.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE ALL students of a batch (optional — when deleting batch)
+app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const coll = getCollection("batch_students");
+    const result = await coll.deleteMany({ batchId: String(batchId) });
+    res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ DELETE BATCH
 app.delete("/api/batches/delete/:id", (req, res) => {
   try {
@@ -5217,20 +5383,121 @@ app.get("/api/batches/course-videos/:courseName", (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
 // =============================================
-// ✅ 404 HANDLER
+// ✅ BATCH STUDENTS — MongoDB Collection (batch_students)
 // =============================================
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route not found: ${req.method} ${req.url}`,
-  });
+
+// ✅ GET all batch students (optional filter by batchId)
+app.get("/api/batch-students/all", async (req, res) => {
+  try {
+    const { batchId } = req.query;
+    console.log("📥 GET /api/batch-students/all | batchId:", batchId || "All");
+
+    const coll = getCollection("batch_students");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const query = batchId ? { batchId: String(batchId) } : {};
+    const students = await coll.find(query).sort({ createdAt: -1 }).toArray();
+
+    console.log(`✅ Found ${students.length} students`);
+    res.status(200).json({ success: true, total: students.length, students });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ BATCH STUDENTS — MongoDB Collection (batch_students)
+// =============================================
+
+// ✅ GET all batch students (optional filter by batchId)
+app.get("/api/batch-students/all", async (req, res) => {
+  try {
+    const { batchId } = req.query;
+    console.log("📥 GET /api/batch-students/all | batchId:", batchId || "All");
+
+    const coll = getCollection("batch_students");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const query = batchId ? { batchId: String(batchId) } : {};
+    const students = await coll.find(query).sort({ createdAt: -1 }).toArray();
+
+    console.log(`✅ Found ${students.length} students`);
+    res.status(200).json({ success: true, total: students.length, students });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE batch student
+app.put("/api/batch-students/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/batch-students/update/", id);
+
+    const coll = getCollection("batch_students");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+
+    const result = await coll.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: new ObjectId(id) });
+    res.status(200).json({ success: true, student: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE batch student
+app.delete("/api/batch-students/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/batch-students/delete/", id);
+
+    const coll = getCollection("batch_students");
+    const result = await coll.deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE ALL students of a batch (when deleting batch)
+app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const coll = getCollection("batch_students");
+    const result = await coll.deleteMany({ batchId: String(batchId) });
+    res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // =============================================
 // ✅ API Routes
 // =============================================
-app.use("/api/auth", authRoutes);
 
 // =============================================
 // ✅ API Routes
@@ -5244,6 +5511,16 @@ app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/admin", adminRoutes);
 // app.use("/api/admin-profile", adminProfileRoutes);
+
+// =============================================
+// ✅ 404 HANDLER
+// =============================================
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.url}`,
+  });
+});
 
 // =============================================
 // ✅ ERROR HANDLER
