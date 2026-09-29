@@ -5851,37 +5851,64 @@ app.delete("/api/batch-materials/delete/:id", async (req, res) => {
 // =============================================
 // ✅ STUDENT ACADEMIC DATA — Get batch data by course
 // =============================================
+// =============================================
+// ✅ STUDENT ACADEMIC DATA — Get batch data by course
+// Smart matching: handle multiple courses, partial match
+// =============================================
 app.get("/api/student/academic/:courseName", async (req, res) => {
   try {
     const { courseName } = req.params;
     const decoded = decodeURIComponent(courseName).trim();
     console.log("════════════════════════════════════════");
-    console.log("📥 GET /api/student/academic/", decoded);
+    console.log("📥 GET /api/student/academic/", `"${decoded}"`);
 
-    // 1️⃣ Find matching batches by course name
+    // ✅ Split search term by comma — handle "Qaida Nooraniya, Bakarah Hifz"
+    const searchTerms = decoded
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    console.log("🔍 Search terms:", searchTerms);
+
     const data = readBatchesData();
     const allBatches = data.batches || [];
-    const searchLower = decoded.toLowerCase();
+    console.log(`📦 Total batches: ${allBatches.length}`);
 
+    // ✅ Match ANY search term against batch course/name
     const matchingBatches = allBatches.filter((b) => {
       const bCourse = (b.course || "").toLowerCase().trim();
       const bName = (b.name || "").toLowerCase().trim();
-      if (!bCourse && !bName) return false;
-      if (bCourse === searchLower || bName === searchLower) return true;
-      if (bCourse.includes(searchLower) || searchLower.includes(bCourse))
-        return true;
-      if (bName.includes(searchLower) || searchLower.includes(bName))
-        return true;
-      const sw = searchLower.split(/\s+/).filter((w) => w.length > 3);
-      const bw = bCourse.split(/\s+/).filter((w) => w.length > 3);
-      if (sw.some((w) => bw.includes(w))) return true;
-      return false;
+
+      return searchTerms.some((search) => {
+        if (!search) return false;
+
+        // Exact match
+        if (bCourse === search || bName === search) return true;
+
+        // Contains match
+        if (bCourse && (bCourse.includes(search) || search.includes(bCourse)))
+          return true;
+        if (bName && (bName.includes(search) || search.includes(bName)))
+          return true;
+
+        // Word-level match (>3 chars)
+        const sw = search.split(/\s+/).filter((w) => w.length > 3);
+        const bw = bCourse.split(/\s+/).filter((w) => w.length > 3);
+        if (sw.some((w) => bw.includes(w))) return true;
+
+        return false;
+      });
     });
 
     const batchIds = matchingBatches.map((b) => String(b._id));
     console.log(`✅ Matched batches: ${matchingBatches.length}`);
+    matchingBatches.forEach((b) => {
+      console.log(`   → "${b.name}" | course: "${b.course}" | _id: ${b._id}`);
+    });
 
-    // 2️⃣ Videos from batch_videos collection
+    // ────────────────────────────────────────
+    // 1️⃣ Videos from batch_videos collection
+    // ────────────────────────────────────────
     const videosColl = getCollection("batch_videos");
     let videos = [];
     if (videosColl && batchIds.length > 0) {
@@ -5891,7 +5918,7 @@ app.get("/api/student/academic/:courseName", async (req, res) => {
         .toArray();
     }
 
-    // Also include legacy videos from batches.json
+    // Legacy videos from batches.json
     const legacyVideos = [];
     matchingBatches.forEach((batch) => {
       if (batch.videoUrl && batch.videoUrl.trim()) {
@@ -5918,7 +5945,12 @@ app.get("/api/student/academic/:courseName", async (req, res) => {
       });
     });
 
-    // 3️⃣ Materials from batch_materials collection
+    const allVideos = [...videos, ...legacyVideos];
+    console.log(`🎬 Videos found: ${allVideos.length}`);
+
+    // ────────────────────────────────────────
+    // 2️⃣ Materials from batch_materials
+    // ────────────────────────────────────────
     const materialsColl = getCollection("batch_materials");
     let materials = [];
     if (materialsColl && batchIds.length > 0) {
@@ -5928,7 +5960,9 @@ app.get("/api/student/academic/:courseName", async (req, res) => {
         .toArray();
     }
 
-    // 4️⃣ Classes from batch_classes collection
+    // ────────────────────────────────────────
+    // 3️⃣ Classes from batch_classes
+    // ────────────────────────────────────────
     const classesColl = getCollection("batch_classes");
     let classes = [];
     if (classesColl && batchIds.length > 0) {
@@ -5938,22 +5972,32 @@ app.get("/api/student/academic/:courseName", async (req, res) => {
         .toArray();
     }
 
-    // 5️⃣ Combine videos
-    const allVideos = [...videos, ...legacyVideos];
+    // Enrich classes with batch info
+    const enrichedClasses = classes.map((cls) => {
+      const parent = matchingBatches.find(
+        (b) => String(b._id) === String(cls.batchId),
+      );
+      return {
+        ...cls,
+        batchName: parent?.name || "",
+        course: parent?.course || "",
+      };
+    });
 
-    // Separate materials by type
+    // Split materials by type
     const exams = materials.filter((m) => m.type === "exam");
     const quizzes = materials.filter((m) => m.type === "quiz");
     const pdfs = materials.filter((m) => m.type === "pdf");
 
     console.log(
-      `🎯 Videos: ${allVideos.length}, Exams: ${exams.length}, Quizzes: ${quizzes.length}, PDFs: ${pdfs.length}, Classes: ${classes.length}`,
+      `🎯 Final → Videos: ${allVideos.length}, Classes: ${enrichedClasses.length}, Exams: ${exams.length}, Quizzes: ${quizzes.length}, PDFs: ${pdfs.length}`,
     );
     console.log("════════════════════════════════════════");
 
     res.status(200).json({
       success: true,
       searchedCourse: decoded,
+      searchTerms,
       matchedBatches: matchingBatches.map((b) => ({
         _id: b._id,
         name: b.name,
@@ -5969,13 +6013,227 @@ app.get("/api/student/academic/:courseName", async (req, res) => {
         quizzes,
         pdfs,
       },
-      classes,
+      classes: enrichedClasses,
       stats: {
         totalVideos: allVideos.length,
         totalExams: exams.length,
         totalQuizzes: quizzes.length,
         totalPdfs: pdfs.length,
-        totalClasses: classes.length,
+        totalClasses: enrichedClasses.length,
+        totalMaterials: materials.length,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ STUDENT ACADEMIC BY BATCH — studentId দিয়ে batch খুঁজে data আনে
+// =============================================
+app.get("/api/student/my-academic/:studentId", async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const decodedId = decodeURIComponent(studentId).trim();
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/my-academic/", decodedId);
+
+    // ───────────────────────────────────────
+    // Step 1: Student খুঁজে বের করি সব collection এ
+    // ───────────────────────────────────────
+    const collectionNames = [
+      "students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
+
+    let student = null;
+    let sourceName = null;
+
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+
+      let found = null;
+
+      // Try by MongoDB _id
+      try {
+        found = await coll.findOne({ _id: new ObjectId(decodedId) });
+      } catch (e) {
+        // Invalid ObjectId — ignore
+      }
+
+      // Try by studentId field
+      if (!found) {
+        found = await coll.findOne({ studentId: decodedId });
+      }
+
+      // Try by username
+      if (!found) {
+        found = await coll.findOne({ username: decodedId });
+      }
+
+      if (found) {
+        student = found;
+        sourceName = name;
+        console.log(`✅ Found student in "${name}": ${student.name}`);
+        break;
+      }
+    }
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found in any collection",
+      });
+    }
+
+    // ───────────────────────────────────────
+    // Step 2: batch_students collection এ খুঁজে batchId বের করি
+    // ───────────────────────────────────────
+    const bsColl = getCollection("batch_students");
+    let batchIds = [];
+
+    if (bsColl) {
+      // Try by studentId
+      if (student.studentId) {
+        const matches = await bsColl
+          .find({ studentId: String(student.studentId) })
+          .toArray();
+        batchIds = matches.map((m) => String(m.batchId)).filter(Boolean);
+        console.log(`🎯 Matched by studentId: ${batchIds.length} batch(es)`);
+      }
+
+      // Try by _id
+      if (batchIds.length === 0) {
+        try {
+          const m = await bsColl.findOne({ _id: new ObjectId(decodedId) });
+          if (m) {
+            batchIds.push(String(m.batchId));
+            console.log(`🎯 Matched by _id: 1 batch`);
+          }
+        } catch (e) {}
+      }
+
+      // Try by name
+      if (batchIds.length === 0 && student.name) {
+        const matches = await bsColl.find({ name: student.name }).toArray();
+        batchIds = matches.map((m) => String(m.batchId)).filter(Boolean);
+        console.log(`🎯 Matched by name: ${batchIds.length} batch(es)`);
+      }
+    }
+
+    // ───────────────────────────────────────
+    // Fallback: students collection এ 'batch' field
+    // ───────────────────────────────────────
+    if (batchIds.length === 0 && student.batch) {
+      const batchesData = readBatchesData();
+      const allBatches = batchesData.batches || [];
+      const searchBatch = String(student.batch).toLowerCase().trim();
+      const matched = allBatches.filter(
+        (b) =>
+          String(b._id) === searchBatch ||
+          String(b.name).toLowerCase() === searchBatch,
+      );
+      batchIds = matched.map((b) => String(b._id));
+      console.log(`🎯 Matched by students.batch field: ${batchIds.length}`);
+    }
+
+    console.log("📦 Batch IDs:", batchIds);
+
+    // ───────────────────────────────────────
+    // Step 3: Videos, Materials, Classes fetch করি
+    // ───────────────────────────────────────
+    let videos = [];
+    let materials = [];
+    let classes = [];
+
+    if (batchIds.length > 0) {
+      const videosColl = getCollection("batch_videos");
+      const materialsColl = getCollection("batch_materials");
+      const classesColl = getCollection("batch_classes");
+
+      if (videosColl) {
+        videos = await videosColl
+          .find({ batchId: { $in: batchIds } })
+          .sort({ addedAt: -1 })
+          .toArray();
+      }
+      if (materialsColl) {
+        materials = await materialsColl
+          .find({ batchId: { $in: batchIds } })
+          .sort({ addedAt: -1 })
+          .toArray();
+      }
+      if (classesColl) {
+        classes = await classesColl
+          .find({ batchId: { $in: batchIds } })
+          .sort({ createdAt: 1 })
+          .toArray();
+      }
+    }
+
+    // ───────────────────────────────────────
+    // Step 4: Batch info enrich
+    // ───────────────────────────────────────
+    const batchesData = readBatchesData();
+    const allBatches = batchesData.batches || [];
+    const studentBatches = allBatches.filter((b) =>
+      batchIds.includes(String(b._id)),
+    );
+
+    const enrichedClasses = classes.map((cls) => {
+      const parent = studentBatches.find(
+        (b) => String(b._id) === String(cls.batchId),
+      );
+      return {
+        ...cls,
+        batchName: parent?.name || "",
+        course: parent?.course || "",
+      };
+    });
+
+    const exams = materials.filter((m) => m.type === "exam");
+    const quizzes = materials.filter((m) => m.type === "quiz");
+    const pdfs = materials.filter((m) => m.type === "pdf");
+
+    console.log(
+      `🎯 Final → Videos: ${videos.length}, Classes: ${enrichedClasses.length}, Exams: ${exams.length}, Quizzes: ${quizzes.length}, PDFs: ${pdfs.length}`,
+    );
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      student: {
+        _id: student._id,
+        name: student.name,
+        studentId: student.studentId,
+        source: sourceName,
+      },
+      batchIds,
+      batches: studentBatches.map((b) => ({
+        _id: b._id,
+        name: b.name,
+        course: b.course,
+        teacher: b.teacher,
+        schedule: b.schedule,
+        status: b.status,
+      })),
+      videos,
+      materials: {
+        all: materials,
+        exams,
+        quizzes,
+        pdfs,
+      },
+      classes: enrichedClasses,
+      stats: {
+        totalVideos: videos.length,
+        totalExams: exams.length,
+        totalQuizzes: quizzes.length,
+        totalPdfs: pdfs.length,
+        totalClasses: enrichedClasses.length,
         totalMaterials: materials.length,
       },
     });
