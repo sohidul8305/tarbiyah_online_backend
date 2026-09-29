@@ -6029,122 +6029,92 @@ app.get("/api/student/academic/:courseName", async (req, res) => {
   }
 });
 
-// =============================================
-// ✅ STUDENT ACADEMIC BY BATCH — studentId দিয়ে batch খুঁজে data আনে
-// =============================================
-app.get("/api/student/my-academic/:studentId", async (req, res) => {
+// backend/index.js — পুরনো /api/student/my-academic replace করুন
+app.get("/api/student/my-academic", async (req, res) => {
   try {
-    const { studentId } = req.params;
-    const decodedId = decodeURIComponent(studentId).trim();
+    const { id, studentId, phone, name, username, course } = req.query;
     console.log("════════════════════════════════════════");
-    console.log("📥 GET /api/student/my-academic/", decodedId);
+    console.log("📥 GET /api/student/my-academic");
+    console.log("   id:", id || "-", "| studentId:", studentId || "-");
+    console.log("   phone:", phone || "-", "| name:", name || "-");
 
-    // ───────────────────────────────────────
-    // Step 1: Student খুঁজে বের করি সব collection এ
-    // ───────────────────────────────────────
-    const collectionNames = [
-      "students",
-      "basic_tazweed_students",
-      "najera_batch_students",
-    ];
-
-    let student = null;
-    let sourceName = null;
-
-    for (const name of collectionNames) {
-      const coll = getCollection(name);
-      if (!coll) continue;
-
-      let found = null;
-
-      // Try by MongoDB _id
-      try {
-        found = await coll.findOne({ _id: new ObjectId(decodedId) });
-      } catch (e) {
-        // Invalid ObjectId — ignore
-      }
-
-      // Try by studentId field
-      if (!found) {
-        found = await coll.findOne({ studentId: decodedId });
-      }
-
-      // Try by username
-      if (!found) {
-        found = await coll.findOne({ username: decodedId });
-      }
-
-      if (found) {
-        student = found;
-        sourceName = name;
-        console.log(`✅ Found student in "${name}": ${student.name}`);
-        break;
-      }
-    }
-
-    if (!student) {
-      return res.status(404).json({
+    const bsColl = getCollection("batch_students");
+    if (!bsColl) {
+      return res.status(500).json({
         success: false,
-        message: "Student not found in any collection",
+        message: "batch_students collection not found",
       });
     }
 
-    // ───────────────────────────────────────
-    // Step 2: batch_students collection এ খুঁজে batchId বের করি
-    // ───────────────────────────────────────
-    const bsColl = getCollection("batch_students");
-    let batchIds = [];
+    // ─── Step 1: Multi-identifier OR conditions ───
+    const orConditions = [];
 
-    if (bsColl) {
-      // Try by studentId
-      if (student.studentId) {
-        const matches = await bsColl
-          .find({ studentId: String(student.studentId) })
-          .toArray();
-        batchIds = matches.map((m) => String(m.batchId)).filter(Boolean);
-        console.log(`🎯 Matched by studentId: ${batchIds.length} batch(es)`);
-      }
+    // (a) Main student _id → studentDbId reference
+    if (id && String(id).trim()) {
+      orConditions.push({ studentDbId: String(id).trim() });
+    }
 
-      // Try by _id
-      if (batchIds.length === 0) {
-        try {
-          const m = await bsColl.findOne({ _id: new ObjectId(decodedId) });
-          if (m) {
-            batchIds.push(String(m.batchId));
-            console.log(`🎯 Matched by _id: 1 batch`);
-          }
-        } catch (e) {}
-      }
-
-      // Try by name
-      if (batchIds.length === 0 && student.name) {
-        const matches = await bsColl.find({ name: student.name }).toArray();
-        batchIds = matches.map((m) => String(m.batchId)).filter(Boolean);
-        console.log(`🎯 Matched by name: ${batchIds.length} batch(es)`);
+    // (b) Phone (exact + last-11 fallback for BD format)
+    if (phone && String(phone).trim()) {
+      const cleanPhone = String(phone).trim();
+      orConditions.push({ phone: cleanPhone });
+      const last11 = cleanPhone.replace(/\D/g, "").slice(-11);
+      if (last11.length === 11) {
+        orConditions.push({ phone: { $regex: last11 + "$" } });
       }
     }
 
-    // ───────────────────────────────────────
-    // Fallback: students collection এ 'batch' field
-    // ───────────────────────────────────────
-    if (batchIds.length === 0 && student.batch) {
-      const batchesData = readBatchesData();
-      const allBatches = batchesData.batches || [];
-      const searchBatch = String(student.batch).toLowerCase().trim();
-      const matched = allBatches.filter(
-        (b) =>
-          String(b._id) === searchBatch ||
-          String(b.name).toLowerCase() === searchBatch,
+    // (c) studentId (exact, case-insensitive)
+    if (studentId && String(studentId).trim()) {
+      const sid = String(studentId).trim();
+      orConditions.push({ studentId: sid });
+      orConditions.push({
+        studentId: { $regex: `^${sid}$`, $options: "i" },
+      });
+    }
+
+    // (d) Name (exact first, then first-word partial)
+    if (name && String(name).trim() && name !== "Student") {
+      const nm = String(name).trim();
+      orConditions.push({ name: { $regex: `^${nm}$`, $options: "i" } });
+      const firstName = nm.split(/\s+/)[0];
+      if (firstName && firstName.length > 3) {
+        orConditions.push({
+          name: { $regex: `^${firstName}`, $options: "i" },
+        });
+      }
+    }
+
+    if (orConditions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No search criteria provided",
+      });
+    }
+
+    console.log(`🔍 Search: ${orConditions.length} conditions`);
+    const matchedBatchStudents = await bsColl
+      .find({ $or: orConditions })
+      .toArray();
+
+    console.log(
+      `🎯 Matched ${matchedBatchStudents.length} batch_student records`,
+    );
+    matchedBatchStudents.forEach((m) => {
+      console.log(
+        `   → name:"${m.name}" | studentId:"${m.studentId}" | phone:"${m.phone}" | batchId:"${m.batchId}"`,
       );
-      batchIds = matched.map((b) => String(b._id));
-      console.log(`🎯 Matched by students.batch field: ${batchIds.length}`);
-    }
+    });
 
-    console.log("📦 Batch IDs:", batchIds);
+    // ─── Step 2: Batch IDs ───
+    const batchIds = [
+      ...new Set(
+        matchedBatchStudents.map((m) => String(m.batchId)).filter(Boolean),
+      ),
+    ];
+    console.log(`📦 Batch IDs:`, batchIds);
 
-    // ───────────────────────────────────────
-    // Step 3: Videos, Materials, Classes fetch করি
-    // ───────────────────────────────────────
+    // ─── Step 3: Content from MongoDB (only this student's batches) ───
     let videos = [];
     let materials = [];
     let classes = [];
@@ -6174,15 +6144,52 @@ app.get("/api/student/my-academic/:studentId", async (req, res) => {
       }
     }
 
-    // ───────────────────────────────────────
-    // Step 4: Batch info enrich
-    // ───────────────────────────────────────
-    const batchesData = readBatchesData();
-    const allBatches = batchesData.batches || [];
+    // ─── Step 4: Batch info + LEGACY videos from batches.json ───
+    const allBatches = readBatchesData().batches || [];
     const studentBatches = allBatches.filter((b) =>
       batchIds.includes(String(b._id)),
     );
 
+    // ⬅️ এইটাই MISSING ছিল — পুরনো batches.json এর videos
+    const legacyVideos = [];
+    studentBatches.forEach((batch) => {
+      if (batch.videoUrl && batch.videoUrl.trim()) {
+        legacyVideos.push({
+          _id: batch._id + "_p",
+          title: `${batch.name} - Primary Video`,
+          url: batch.videoUrl.trim(),
+          batchName: batch.name,
+          course: batch.course || "",
+          teacher: batch.teacher || "",
+          addedAt: batch.createdAt || "",
+        });
+      }
+      (batch.videos || []).forEach((v, i) => {
+        if (v && v.url && v.url.trim()) {
+          legacyVideos.push({
+            _id: `${batch._id}_v${i}`,
+            title: v.title || `Video ${i + 1}`,
+            url: v.url.trim(),
+            batchName: batch.name,
+            course: batch.course || "",
+            teacher: batch.teacher || "",
+            addedAt: v.addedAt || batch.createdAt || "",
+          });
+        }
+      });
+    });
+
+    // ─── Combine + dedupe videos (URL-based) ───
+    const seenUrls = new Set();
+    const allVideos = [];
+    [...videos, ...legacyVideos].forEach((v) => {
+      if (v.url && !seenUrls.has(v.url)) {
+        seenUrls.add(v.url);
+        allVideos.push(v);
+      }
+    });
+
+    // ─── Enrich classes with batch info ───
     const enrichedClasses = classes.map((cls) => {
       const parent = studentBatches.find(
         (b) => String(b._id) === String(cls.batchId),
@@ -6199,18 +6206,18 @@ app.get("/api/student/my-academic/:studentId", async (req, res) => {
     const pdfs = materials.filter((m) => m.type === "pdf");
 
     console.log(
-      `🎯 Final → Videos: ${videos.length}, Classes: ${enrichedClasses.length}, Exams: ${exams.length}, Quizzes: ${quizzes.length}, PDFs: ${pdfs.length}`,
+      `✅ Final → Videos: ${allVideos.length}, Classes: ${enrichedClasses.length}, Exams: ${exams.length}, Quizzes: ${quizzes.length}, PDFs: ${pdfs.length}`,
     );
     console.log("════════════════════════════════════════");
 
     res.status(200).json({
       success: true,
-      student: {
-        _id: student._id,
-        name: student.name,
-        studentId: student.studentId,
-        source: sourceName,
-      },
+      matchedBatchStudents: matchedBatchStudents.map((m) => ({
+        name: m.name,
+        studentId: m.studentId,
+        phone: m.phone,
+        batchId: m.batchId,
+      })),
       batchIds,
       batches: studentBatches.map((b) => ({
         _id: b._id,
@@ -6220,16 +6227,11 @@ app.get("/api/student/my-academic/:studentId", async (req, res) => {
         schedule: b.schedule,
         status: b.status,
       })),
-      videos,
-      materials: {
-        all: materials,
-        exams,
-        quizzes,
-        pdfs,
-      },
+      videos: allVideos,
+      materials: { all: materials, exams, quizzes, pdfs },
       classes: enrichedClasses,
       stats: {
-        totalVideos: videos.length,
+        totalVideos: allVideos.length,
         totalExams: exams.length,
         totalQuizzes: quizzes.length,
         totalPdfs: pdfs.length,
@@ -6242,7 +6244,6 @@ app.get("/api/student/my-academic/:studentId", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 // =============================================
 // ✅ STUDENT ACADEMIC — ALL DATA (No filter — সব student সব দেখবে)
 // =============================================
@@ -6469,6 +6470,11 @@ app.post("/api/batch-students/create", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// =============================================
+// ✅ STUDENT ACADEMIC BY BATCH — Query param version (multi-identifier)
+// =============================================
+
 // =============================================
 // ✅ BATCH VIDEOS — MongoDB Collection (batch_videos)
 // =============================================
