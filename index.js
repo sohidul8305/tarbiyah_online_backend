@@ -5848,6 +5848,273 @@ app.delete("/api/batch-materials/delete/:id", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+// =============================================
+// ✅ STUDENT ACADEMIC DATA — Get batch data by course
+// =============================================
+app.get("/api/student/academic/:courseName", async (req, res) => {
+  try {
+    const { courseName } = req.params;
+    const decoded = decodeURIComponent(courseName).trim();
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/academic/", decoded);
+
+    // 1️⃣ Find matching batches by course name
+    const data = readBatchesData();
+    const allBatches = data.batches || [];
+    const searchLower = decoded.toLowerCase();
+
+    const matchingBatches = allBatches.filter((b) => {
+      const bCourse = (b.course || "").toLowerCase().trim();
+      const bName = (b.name || "").toLowerCase().trim();
+      if (!bCourse && !bName) return false;
+      if (bCourse === searchLower || bName === searchLower) return true;
+      if (bCourse.includes(searchLower) || searchLower.includes(bCourse))
+        return true;
+      if (bName.includes(searchLower) || searchLower.includes(bName))
+        return true;
+      const sw = searchLower.split(/\s+/).filter((w) => w.length > 3);
+      const bw = bCourse.split(/\s+/).filter((w) => w.length > 3);
+      if (sw.some((w) => bw.includes(w))) return true;
+      return false;
+    });
+
+    const batchIds = matchingBatches.map((b) => String(b._id));
+    console.log(`✅ Matched batches: ${matchingBatches.length}`);
+
+    // 2️⃣ Videos from batch_videos collection
+    const videosColl = getCollection("batch_videos");
+    let videos = [];
+    if (videosColl && batchIds.length > 0) {
+      videos = await videosColl
+        .find({ batchId: { $in: batchIds } })
+        .sort({ addedAt: -1 })
+        .toArray();
+    }
+
+    // Also include legacy videos from batches.json
+    const legacyVideos = [];
+    matchingBatches.forEach((batch) => {
+      if (batch.videoUrl && batch.videoUrl.trim()) {
+        legacyVideos.push({
+          _id: batch._id + "_p",
+          title: `${batch.name} - Primary Video`,
+          url: batch.videoUrl.trim(),
+          batchName: batch.name,
+          teacher: batch.teacher || "",
+          addedAt: batch.createdAt || "",
+        });
+      }
+      (batch.videos || []).forEach((v, i) => {
+        if (v && v.url && v.url.trim()) {
+          legacyVideos.push({
+            _id: `${batch._id}_v${i}`,
+            title: v.title || `Video ${i + 1}`,
+            url: v.url.trim(),
+            batchName: batch.name,
+            teacher: batch.teacher || "",
+            addedAt: v.addedAt || batch.createdAt || "",
+          });
+        }
+      });
+    });
+
+    // 3️⃣ Materials from batch_materials collection
+    const materialsColl = getCollection("batch_materials");
+    let materials = [];
+    if (materialsColl && batchIds.length > 0) {
+      materials = await materialsColl
+        .find({ batchId: { $in: batchIds } })
+        .sort({ addedAt: -1 })
+        .toArray();
+    }
+
+    // 4️⃣ Classes from batch_classes collection
+    const classesColl = getCollection("batch_classes");
+    let classes = [];
+    if (classesColl && batchIds.length > 0) {
+      classes = await classesColl
+        .find({ batchId: { $in: batchIds } })
+        .sort({ createdAt: 1 })
+        .toArray();
+    }
+
+    // 5️⃣ Combine videos
+    const allVideos = [...videos, ...legacyVideos];
+
+    // Separate materials by type
+    const exams = materials.filter((m) => m.type === "exam");
+    const quizzes = materials.filter((m) => m.type === "quiz");
+    const pdfs = materials.filter((m) => m.type === "pdf");
+
+    console.log(
+      `🎯 Videos: ${allVideos.length}, Exams: ${exams.length}, Quizzes: ${quizzes.length}, PDFs: ${pdfs.length}, Classes: ${classes.length}`,
+    );
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      searchedCourse: decoded,
+      matchedBatches: matchingBatches.map((b) => ({
+        _id: b._id,
+        name: b.name,
+        course: b.course,
+        teacher: b.teacher,
+        schedule: b.schedule,
+        status: b.status,
+      })),
+      videos: allVideos,
+      materials: {
+        all: materials,
+        exams,
+        quizzes,
+        pdfs,
+      },
+      classes,
+      stats: {
+        totalVideos: allVideos.length,
+        totalExams: exams.length,
+        totalQuizzes: quizzes.length,
+        totalPdfs: pdfs.length,
+        totalClasses: classes.length,
+        totalMaterials: materials.length,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ STUDENT ACADEMIC — ALL DATA (No filter — সব student সব দেখবে)
+// =============================================
+app.get("/api/student/academic-all", async (req, res) => {
+  try {
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/academic-all (ALL data)");
+
+    // 1️⃣ Get ALL batches
+    const data = readBatchesData();
+    const allBatches = data.batches || [];
+    const batchIds = allBatches.map((b) => String(b._id));
+    console.log(`📦 Total batches: ${allBatches.length}`);
+
+    // 2️⃣ Videos from batch_videos collection
+    const videosColl = getCollection("batch_videos");
+    let videos = [];
+    if (videosColl && batchIds.length > 0) {
+      videos = await videosColl
+        .find({ batchId: { $in: batchIds } })
+        .sort({ addedAt: -1 })
+        .toArray();
+    }
+
+    // Legacy videos from batches.json
+    const legacyVideos = [];
+    allBatches.forEach((batch) => {
+      if (batch.videoUrl && batch.videoUrl.trim()) {
+        legacyVideos.push({
+          _id: batch._id + "_p",
+          title: `${batch.name} - Primary Video`,
+          url: batch.videoUrl.trim(),
+          batchName: batch.name,
+          course: batch.course || "",
+          teacher: batch.teacher || "",
+          addedAt: batch.createdAt || "",
+        });
+      }
+      (batch.videos || []).forEach((v, i) => {
+        if (v && v.url && v.url.trim()) {
+          legacyVideos.push({
+            _id: `${batch._id}_v${i}`,
+            title: v.title || `Video ${i + 1}`,
+            url: v.url.trim(),
+            batchName: batch.name,
+            course: batch.course || "",
+            teacher: batch.teacher || "",
+            addedAt: v.addedAt || batch.createdAt || "",
+          });
+        }
+      });
+    });
+
+    // 3️⃣ Materials from batch_materials collection
+    const materialsColl = getCollection("batch_materials");
+    let materials = [];
+    if (materialsColl && batchIds.length > 0) {
+      materials = await materialsColl
+        .find({ batchId: { $in: batchIds } })
+        .sort({ addedAt: -1 })
+        .toArray();
+    }
+
+    // 4️⃣ Classes from batch_classes collection
+    const classesColl = getCollection("batch_classes");
+    let classes = [];
+    if (classesColl && batchIds.length > 0) {
+      classes = await classesColl
+        .find({ batchId: { $in: batchIds } })
+        .sort({ createdAt: 1 })
+        .toArray();
+    }
+
+    // Enrich classes with batch info (course name)
+    const enrichedClasses = classes.map((cls) => {
+      const parentBatch = allBatches.find(
+        (b) => String(b._id) === String(cls.batchId),
+      );
+      return {
+        ...cls,
+        batchName: parentBatch?.name || "",
+        course: parentBatch?.course || "",
+      };
+    });
+
+    // Combine videos
+    const allVideos = [...videos, ...legacyVideos];
+
+    // Separate materials
+    const exams = materials.filter((m) => m.type === "exam");
+    const quizzes = materials.filter((m) => m.type === "quiz");
+    const pdfs = materials.filter((m) => m.type === "pdf");
+
+    console.log(
+      `🎯 Videos: ${allVideos.length}, Exams: ${exams.length}, Quizzes: ${quizzes.length}, PDFs: ${pdfs.length}, Classes: ${enrichedClasses.length}`,
+    );
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      batches: allBatches.map((b) => ({
+        _id: b._id,
+        name: b.name,
+        course: b.course,
+        teacher: b.teacher,
+        schedule: b.schedule,
+        status: b.status,
+      })),
+      videos: allVideos,
+      materials: {
+        all: materials,
+        exams,
+        quizzes,
+        pdfs,
+      },
+      classes: enrichedClasses,
+      stats: {
+        totalVideos: allVideos.length,
+        totalExams: exams.length,
+        totalQuizzes: quizzes.length,
+        totalPdfs: pdfs.length,
+        totalClasses: enrichedClasses.length,
+        totalMaterials: materials.length,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // ✅ DELETE all materials of a batch (cascade delete)
 app.delete(
