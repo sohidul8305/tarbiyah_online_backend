@@ -1362,14 +1362,49 @@ app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
 });
 
 // ✅ UPDATE batch student
+// ✅ UPDATE batch student — auto-recalc due when payment/fee changes
 app.put("/api/batch-students/update/:id", async (req, res) => {
   try {
     const { id } = req.params;
     console.log("📥 PUT /api/batch-students/update/", id);
 
     const coll = getCollection("batch_students");
+    const existing = await coll.findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
     const updateData = { ...req.body, updatedAt: new Date() };
     delete updateData._id;
+
+    // ✅ Auto-recalc paidAmount & dueAmount whenever relevant field changes
+    const willRecalc =
+      updateData.paidMonths !== undefined ||
+      updateData.scholarshipAmount !== undefined ||
+      updateData.courseFee !== undefined;
+
+    if (willRecalc) {
+      const paidMonths = updateData.paidMonths ?? existing.paidMonths ?? [];
+      const totalPaid = paidMonths.reduce(
+        (sum, p) => sum + Number(p.amount || 0),
+        0,
+      );
+
+      const fee = Number(updateData.courseFee ?? existing.courseFee ?? 0);
+      const scholarship = Number(
+        updateData.scholarshipAmount ?? existing.scholarshipAmount ?? 0,
+      );
+      const due = Math.max(fee - scholarship - totalPaid, 0);
+
+      updateData.paidAmount = totalPaid;
+      updateData.dueAmount = due;
+
+      if (!updateData.paymentStatus) {
+        if (due === 0 && totalPaid > 0) updateData.paymentStatus = "Paid";
+        else if (totalPaid > 0) updateData.paymentStatus = "Partial";
+        else updateData.paymentStatus = "Unpaid";
+      }
+    }
 
     const result = await coll.updateOne(
       { _id: new ObjectId(id) },
@@ -1381,9 +1416,59 @@ app.put("/api/batch-students/update/:id", async (req, res) => {
     }
 
     const updated = await coll.findOne({ _id: new ObjectId(id) });
+    console.log(
+      `✅ Updated | Paid: ${updated.paidAmount} | Due: ${updated.dueAmount} | Status: ${updated.paymentStatus}`,
+    );
     res.status(200).json({ success: true, student: updated });
   } catch (error) {
     console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ ONE-TIME: fix old batch_students
+app.get("/api/batch-students/fix-old", async (req, res) => {
+  try {
+    const coll = getCollection("batch_students");
+    const all = await coll.find({}).toArray();
+    let fixed = 0;
+
+    for (const s of all) {
+      const updates = {};
+
+      // Missing fee fields → default 0
+      if (s.courseFee === undefined) updates.courseFee = 0;
+      if (s.monthlyFee === undefined) updates.monthlyFee = 0;
+      if (s.scholarshipAmount === undefined) updates.scholarshipAmount = 0;
+      if (s.scholarshipNote === undefined) updates.scholarshipNote = "";
+      if (s.paidAmount === undefined) updates.paidAmount = 0;
+      if (s.dueAmount === undefined) updates.dueAmount = 0;
+      if (!s.paidMonths) updates.paidMonths = [];
+
+      // Fix inconsistent status
+      const fee = Number(s.courseFee) || 0;
+      const scholarship = Number(s.scholarshipAmount) || 0;
+      const paid = Number(s.paidAmount) || 0;
+      const due = Math.max(fee - scholarship - paid, 0);
+
+      if (s.paymentStatus === "Paid" && due > 0) {
+        updates.paymentStatus = paid > 0 ? "Partial" : "Unpaid";
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updates.updatedAt = new Date();
+        await coll.updateOne({ _id: s._id }, { $set: updates });
+        fixed++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `✅ Fixed ${fixed} / ${all.length} students`,
+      total: all.length,
+      fixed,
+    });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -5512,15 +5597,26 @@ app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
 // =============================================
 
 // ✅ CREATE class
+// ✅ CREATE class
 app.post("/api/batch-classes/create", async (req, res) => {
   try {
     console.log("📥 POST /api/batch-classes/create");
     console.log("📝 Body:", req.body);
 
-    const { batchId, name, day, time, gender, teachers, teacher, meetingLink } =
-      req.body;
+    const {
+      batchId,
+      name,
+      classNo, // ⬅️ NEW
+      classDate, // ⬅️ NEW
+      day,
+      time,
+      gender,
+      teachers,
+      teacher,
+      meetingLink,
+    } = req.body;
 
-    // ✅ Support both formats (backward compat)
+    // ✅ Support both formats
     const teachersList = Array.isArray(teachers)
       ? teachers.filter(Boolean)
       : teacher
@@ -5535,10 +5631,13 @@ app.post("/api/batch-classes/create", async (req, res) => {
     const newClass = {
       batchId: String(batchId),
       name: String(name).trim(),
+      classNo: classNo || "", // ⬅️ MUST
+      classDate: classDate || "", // ⬅️ MUST
       day: day || "Saturday",
       time: String(time).trim(),
       gender: gender || "Male",
-      teacher: teacher || "",
+      teachers: teachersList, // ⬅️ array bug fix
+      teacher: teachersList[0] || "",
       meetingLink: meetingLink || "",
       attendance: [],
       createdAt: new Date(),
@@ -5645,6 +5744,48 @@ app.delete("/api/batch-classes/delete-by-batch/:batchId", async (req, res) => {
     const coll = getCollection("batch_classes");
     const result = await coll.deleteMany({ batchId: String(batchId) });
     res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ BULK: Set same fee for all students in a batch
+app.put("/api/batch-students/bulk-set-fee/:batchId", async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const { courseFee, monthlyFee } = req.body;
+
+    const fee = Number(courseFee) || 0;
+    const monthly = Number(monthlyFee) || fee;
+
+    const coll = getCollection("batch_students");
+    const students = await coll.find({ batchId: String(batchId) }).toArray();
+
+    let updated = 0;
+    for (const s of students) {
+      const scholarship = Number(s.scholarshipAmount) || 0;
+      const paid = Number(s.paidAmount) || 0;
+      const due = Math.max(fee - scholarship - paid, 0);
+
+      await coll.updateOne(
+        { _id: s._id },
+        {
+          $set: {
+            courseFee: fee,
+            monthlyFee: monthly,
+            dueAmount: due,
+            updatedAt: new Date(),
+          },
+        },
+      );
+      updated++;
+    }
+
+    res.json({
+      success: true,
+      message: `✅ ${updated} students updated with fee ৳${fee}`,
+      updated,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -6421,13 +6562,32 @@ app.get("/api/batch-materials/stats/:batchId", async (req, res) => {
 });
 
 // ✅ CREATE batch student
+// ✅ CREATE batch student — with scholarship + auto due
 app.post("/api/batch-students/create", async (req, res) => {
   try {
     console.log("📥 POST /api/batch-students/create");
     console.log("📝 Body:", req.body);
 
-    const { batchId, name, studentId, phone, country, course, paymentStatus } =
-      req.body;
+    const {
+      batchId,
+      name,
+      studentId,
+      phone,
+      country,
+      course,
+      paymentStatus,
+
+      // ⬇️ নতুন ফিল্ড
+      scholarshipAmount,
+      scholarshipNote,
+      courseFee,
+      monthlyFee,
+      paidAmount,
+      admissionDate,
+      paymentMethod,
+      transactionId,
+      notes,
+    } = req.body;
 
     if (!batchId || !name) {
       return res.status(400).json({
@@ -6441,6 +6601,35 @@ app.post("/api/batch-students/create", async (req, res) => {
       return res.status(500).json({ success: false, message: "DB not found!" });
     }
 
+    // ✅ Auto calculate
+    const fee = Number(courseFee) || 0;
+    const scholarship = Number(scholarshipAmount) || 0;
+    const paid = Number(paidAmount) || 0;
+    const due = Math.max(fee - scholarship - paid, 0);
+
+    // ✅ Auto status
+    let autoStatus = paymentStatus || "Unpaid";
+    if (!paymentStatus) {
+      if (due === 0 && paid > 0) autoStatus = "Paid";
+      else if (paid > 0) autoStatus = "Partial";
+      else autoStatus = "Unpaid";
+    }
+
+    // ✅ First payment history entry
+    const paidMonths = [];
+    if (paid > 0) {
+      paidMonths.push({
+        _id: "pay_" + Date.now(),
+        month: admissionDate
+          ? String(admissionDate).slice(0, 7)
+          : new Date().toISOString().slice(0, 7),
+        amount: paid,
+        method: paymentMethod || "Cash",
+        note: notes || "Initial payment",
+        paidAt: new Date().toISOString(),
+      });
+    }
+
     const newStudent = {
       batchId: String(batchId),
       name: String(name).trim(),
@@ -6450,19 +6639,35 @@ app.post("/api/batch-students/create", async (req, res) => {
       phone: phone || "",
       country: country || "BD",
       course: course || "",
-      paymentStatus: paymentStatus || "Unpaid",
+
+      // ⬇️ নতুন
+      scholarshipAmount: scholarship,
+      scholarshipNote: scholarshipNote || "",
+      courseFee: fee,
+      monthlyFee: Number(monthlyFee) || fee,
+      paidAmount: paid,
+      dueAmount: due,
+      paymentStatus: autoStatus,
+      paymentMethod: paymentMethod || "",
+      transactionId: transactionId || "",
+      notes: notes || "",
+      admissionDate: admissionDate || new Date().toISOString(),
+
       status: "Active",
-      paidMonths: [],
+      paidMonths,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
     const result = await coll.insertOne(newStudent);
     console.log("✅ Batch student created:", result.insertedId);
+    console.log(
+      `💰 Fee: ${fee} | Scholarship: ${scholarship} | Paid: ${paid} | Due: ${due}`,
+    );
 
     res.status(201).json({
       success: true,
-      message: "✅ Student added to database!",
+      message: "✅ Student added with auto-calculated due!",
       student: { ...newStudent, _id: result.insertedId },
     });
   } catch (error) {
