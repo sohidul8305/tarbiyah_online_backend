@@ -1992,6 +1992,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
 // =============================================
 // ✅ STUDENT LOGIN — ৩টি collection-এ খুঁজবে
 // =============================================
+// ✅ STUDENT LOGIN — ৪টি collection-এ খুঁজবে (batch_students সহ)
 app.post("/api/students/login", async (req, res) => {
   try {
     console.log("════════════════════════════════");
@@ -2008,9 +2009,10 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ ৩টি collection-এ খুঁজব
+    // ✅ ৪টি collection-এ খুঁজব
     const collectionNames = [
       "students",
+      "batch_students", // ⬅️ NEW — Admin LMS students
       "basic_tazweed_students",
       "najera_batch_students",
     ];
@@ -2030,6 +2032,7 @@ app.post("/api/students/login", async (req, res) => {
           { username: loginId },
           { username: regex },
           { roll: loginId },
+          { phone: loginId }, // ⬅️ phone দিয়েও login
         ],
       });
 
@@ -2059,10 +2062,16 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ Password check — stored password অথবা default
-    const storedPassword = student.password || "student123S@";
-    if (storedPassword !== password) {
-      console.log("❌ Password mismatch");
+    // ✅ Password check
+    let storedPassword = student.password;
+    if (!storedPassword) {
+      // batch_students / tazweed / najera → default password
+      if (studentCollectionName !== "students") {
+        storedPassword = "student123S@";
+      }
+    }
+
+    if (storedPassword && storedPassword !== password) {
       return res.status(401).json({
         success: false,
         message: "স্টুডেন্ট আইডি বা পাসওয়ার্ড ভুল!",
@@ -2089,6 +2098,239 @@ app.post("/api/students/login", async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+// ============================================================
+// ✅ CAMPUS DATA — Student এর সব courses, batches, materials
+// Campus page + My Courses + Campus Dashboard এর জন্য
+// ============================================================
+app.get("/api/student/campus-data/:studentId", async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/campus-data/", studentId);
+
+    // ─── STEP 1: batch_students এ খুঁজো ───
+    const bsColl = getCollection("batch_students");
+    let studentData = null;
+    let sourceCollection = null;
+
+    if (bsColl) {
+      const found = await bsColl.findOne({
+        $or: [
+          { studentId: studentId },
+          { studentId: { $regex: `^${studentId}$`, $options: "i" } },
+          { studentDbId: studentId },
+        ],
+      });
+      if (found) {
+        studentData = found;
+        sourceCollection = "batch_students";
+      }
+    }
+
+    // ─── STEP 2: না পেলে students ───
+    if (!studentData) {
+      const sColl = getCollection("students");
+      if (sColl) {
+        const found = await sColl.findOne({
+          $or: [
+            { studentId: studentId },
+            { username: studentId },
+            {
+              _id: (() => {
+                try {
+                  return new ObjectId(studentId);
+                } catch {
+                  return null;
+                }
+              })(),
+            },
+          ].filter((c) => c._id !== null),
+        });
+        if (found) {
+          studentData = found;
+          sourceCollection = "students";
+        }
+      }
+    }
+
+    // ─── STEP 3: না পেলে tazweed/najera ───
+    if (!studentData) {
+      for (const cn of ["basic_tazweed_students", "najera_batch_students"]) {
+        const c = getCollection(cn);
+        if (!c) continue;
+        const found = await c.findOne({
+          $or: [
+            { studentId: studentId },
+            {
+              _id: (() => {
+                try {
+                  return new ObjectId(studentId);
+                } catch {
+                  return null;
+                }
+              })(),
+            },
+          ].filter((c) => c._id !== null),
+        });
+        if (found) {
+          studentData = found;
+          sourceCollection = cn;
+          break;
+        }
+      }
+    }
+
+    if (!studentData) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found",
+      });
+    }
+
+    console.log(`✅ Found: ${studentData.name} in ${sourceCollection}`);
+
+    // ─── STEP 4: Enrolled Courses ───
+    const courses = [];
+
+    // (a) batch_students হলে — batch এর course যোগ করো
+    if (sourceCollection === "batch_students" && studentData.batchId) {
+      const batchesData = readBatchesData();
+      const parentBatch = (batchesData.batches || []).find(
+        (b) => String(b._id) === String(studentData.batchId),
+      );
+
+      if (parentBatch) {
+        // Batch এর সব materials যোগ করো
+        const materialsColl = getCollection("batch_materials");
+        const videosColl = getCollection("batch_videos");
+        const classesColl = getCollection("batch_classes");
+
+        let materials = [];
+        let videos = [];
+        let classes = [];
+
+        if (materialsColl) {
+          materials = await materialsColl
+            .find({ batchId: String(studentData.batchId) })
+            .toArray();
+        }
+        if (videosColl) {
+          videos = await videosColl
+            .find({ batchId: String(studentData.batchId) })
+            .toArray();
+        }
+        if (classesColl) {
+          classes = await classesColl
+            .find({ batchId: String(studentData.batchId) })
+            .toArray();
+        }
+
+        courses.push({
+          id: parentBatch._id,
+          titleEn: parentBatch.course || parentBatch.name,
+          titleBn: parentBatch.course || parentBatch.name,
+          batchName: parentBatch.name,
+          course: parentBatch.course,
+          instructor: parentBatch.teacher || "Not Assigned",
+          schedule: parentBatch.schedule || "",
+          status: parentBatch.status || "Active",
+          progress: "0%",
+          semester: "Current",
+          image:
+            parentBatch.image ||
+            "https://i.ibb.co.com/W4Xxdqs9/Najeraadlatsbanner.png",
+          outcomeEn:
+            parentBatch.description ||
+            `${parentBatch.course} course designed for comprehensive learning.`,
+          outcomeBn:
+            parentBatch.description ||
+            `${parentBatch.course} কোর্সটি পূর্ণাঙ্গ শিক্ষার জন্য ডিজাইন করা হয়েছে।`,
+          // Stats
+          totalMaterials: materials.length,
+          totalVideos: videos.length,
+          totalClasses: classes.length,
+          // Detailed lists
+          materials,
+          videos,
+          classes,
+        });
+      }
+    }
+
+    // (b) courses.json এ enrolledCourses থাকলে
+    if (sourceCollection === "students" && studentData.enrolledCourses) {
+      const coursesData = readData();
+      const allCourses = coursesData.courses || [];
+
+      studentData.enrolledCourses.forEach((cid) => {
+        const found = allCourses.find((c) => String(c._id) === String(cid));
+        if (found) {
+          courses.push({
+            id: found._id,
+            titleEn: found.title || "Untitled",
+            titleBn: found.title || "Untitled",
+            course: found.title,
+            instructor: found.teacher || "Not Assigned",
+            schedule: found.schedule || "",
+            status: found.status || "Active",
+            progress: `${found.progress || 0}%`,
+            semester: found.duration || "Current",
+            image:
+              found.image ||
+              "https://i.ibb.co.com/W4Xxdqs9/Najeraadlatsbanner.png",
+            outcomeEn: found.description || "",
+            outcomeBn: found.description || "",
+            totalMaterials: found.materials || 0,
+            totalVideos: found.videos || 0,
+            totalClasses: found.sessions || 0,
+          });
+        }
+      });
+    }
+
+    // ─── STEP 5: Payment info ───
+    const fromMonths = (studentData.paidMonths || []).reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0,
+    );
+    const paid =
+      fromMonths > 0 ? fromMonths : Number(studentData.paidAmount) || 0;
+    const fee =
+      Number(studentData.courseFee) || Number(studentData.monthlyFee) || 0;
+    const scholarship = Number(studentData.scholarshipAmount) || 0;
+    const due = Math.max(fee - scholarship - paid, 0);
+
+    let autoStatus = studentData.paymentStatus;
+    if (!autoStatus) {
+      if (due === 0 && paid > 0) autoStatus = "Paid";
+      else if (paid > 0) autoStatus = "Partial";
+      else autoStatus = "Unpaid";
+    }
+
+    const { password: _, ...safeStudent } = studentData;
+
+    console.log(`🎯 Courses: ${courses.length}`);
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      source: sourceCollection,
+      student: {
+        ...safeStudent,
+        paidAmount: paid,
+        dueAmount: due,
+        courseFee: fee,
+        scholarshipAmount: scholarship,
+        paymentStatus: autoStatus,
+      },
+      courses,
+    });
+  } catch (error) {
+    console.error("❌ Campus-data error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 // DELETE STUDENT
