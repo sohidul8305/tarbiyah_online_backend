@@ -2995,6 +2995,7 @@ app.post("/api/today-classes", async (req, res) => {
       name,
       subject,
       class: classLevel || "",
+      classNo: finalClassNo,
       teacher,
       time,
       days: days || [],
@@ -6561,6 +6562,210 @@ app.get("/api/batch-materials/stats/:batchId", async (req, res) => {
   }
 });
 
+// ============================================================
+// ✅ STUDENT DASHBOARD — Academic এর exact search logic দিয়ে
+// studentDbId, phone, studentId, name — 4টাই search করে
+// ============================================================
+app.get("/api/student/dashboard-full", async (req, res) => {
+  try {
+    const { id, studentId, phone, name, username } = req.query;
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/dashboard-full");
+    console.log("   id:", id || "-", "| studentId:", studentId || "-");
+    console.log("   phone:", phone || "-", "| name:", name || "-");
+
+    const bsColl = getCollection("batch_students");
+    if (!bsColl) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    // ✅ Academic এর মতো same OR conditions
+    const orConditions = [];
+
+    // (a) studentDbId ← id থেকে
+    if (id && String(id).trim()) {
+      orConditions.push({ studentDbId: String(id).trim() });
+    }
+
+    // (b) phone — exact + last 11
+    if (phone && String(phone).trim()) {
+      const cleanPhone = String(phone).trim();
+      orConditions.push({ phone: cleanPhone });
+      const last11 = cleanPhone.replace(/\D/g, "").slice(-11);
+      if (last11.length === 11) {
+        orConditions.push({ phone: { $regex: last11 + "$" } });
+      }
+    }
+
+    // (c) studentId — exact + case insensitive
+    if (studentId && String(studentId).trim()) {
+      const sid = String(studentId).trim();
+      orConditions.push({ studentId: sid });
+      orConditions.push({
+        studentId: { $regex: `^${sid}$`, $options: "i" },
+      });
+    }
+
+    // (d) name — exact + first word
+    if (name && String(name).trim() && name !== "Student") {
+      const nm = String(name).trim();
+      orConditions.push({ name: { $regex: `^${nm}$`, $options: "i" } });
+      const firstName = nm.split(/\s+/)[0];
+      if (firstName && firstName.length > 3) {
+        orConditions.push({
+          name: { $regex: `^${firstName}`, $options: "i" },
+        });
+      }
+    }
+
+    if (orConditions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No search criteria provided",
+      });
+    }
+
+    console.log(
+      `🔍 Searching batch_students with ${orConditions.length} conditions`,
+    );
+
+    // ✅ STEP 1: batch_students এ খুঁজো
+    let studentData = await bsColl.findOne({ $or: orConditions });
+    let sourceCollection = studentData ? "batch_students" : null;
+
+    // ✅ STEP 2: না পেলে students collection
+    if (!studentData) {
+      console.log("⚠️ Not in batch_students, trying students...");
+      const sColl = getCollection("students");
+      if (sColl) {
+        const sOr = [];
+        if (id) {
+          try {
+            sOr.push({ _id: new ObjectId(String(id).trim()) });
+          } catch {}
+        }
+        if (studentId) {
+          sOr.push({
+            studentId: {
+              $regex: `^${String(studentId).trim()}$`,
+              $options: "i",
+            },
+          });
+        }
+        if (phone) sOr.push({ phone: String(phone).trim() });
+        if (username) sOr.push({ username: String(username).trim() });
+
+        if (sOr.length > 0) {
+          studentData = await sColl.findOne({ $or: sOr });
+          if (studentData) {
+            sourceCollection = "students";
+            console.log(`✅ Found in students: ${studentData.name}`);
+          }
+        }
+      }
+    }
+
+    // ✅ STEP 3: না পেলে tazweed/najera
+    if (!studentData) {
+      for (const cn of ["basic_tazweed_students", "najera_batch_students"]) {
+        const c = getCollection(cn);
+        if (!c) continue;
+        const sOr = [];
+        if (id) {
+          try {
+            sOr.push({ _id: new ObjectId(String(id).trim()) });
+          } catch {}
+        }
+        if (studentId) sOr.push({ studentId: String(studentId).trim() });
+        if (phone) sOr.push({ phone: String(phone).trim() });
+        if (sOr.length > 0) {
+          studentData = await c.findOne({ $or: sOr });
+          if (studentData) {
+            sourceCollection = cn;
+            console.log(`✅ Found in ${cn}: ${studentData.name}`);
+            break;
+          }
+        }
+      }
+    }
+
+    if (!studentData) {
+      console.log("❌ Not found in any collection");
+      return res.status(404).json({
+        success: false,
+        message: "Student not found",
+      });
+    }
+
+    console.log(`✅ Found: ${studentData.name} in ${sourceCollection}`);
+
+    // ✅ STEP 4: Parent batch info (batch_students হলে)
+    let batchInfo = null;
+    let batchClasses = [];
+
+    if (sourceCollection === "batch_students" && studentData.batchId) {
+      const batchesData = readBatchesData();
+      batchInfo = (batchesData.batches || []).find(
+        (b) => String(b._id) === String(studentData.batchId),
+      );
+
+      const classesColl = getCollection("batch_classes");
+      if (classesColl) {
+        batchClasses = await classesColl
+          .find({ batchId: String(studentData.batchId) })
+          .sort({ createdAt: 1 })
+          .toArray();
+      }
+    }
+
+    // ✅ STEP 5: Payment calculation
+    const fromMonths = (studentData.paidMonths || []).reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0,
+    );
+    const paid =
+      fromMonths > 0 ? fromMonths : Number(studentData.paidAmount) || 0;
+    const fee =
+      Number(studentData.courseFee) || Number(studentData.monthlyFee) || 0;
+    const scholarship = Number(studentData.scholarshipAmount) || 0;
+    const due = Math.max(fee - scholarship - paid, 0);
+
+    let autoStatus = studentData.paymentStatus;
+    if (!autoStatus) {
+      if (due === 0 && paid > 0) autoStatus = "Paid";
+      else if (paid > 0) autoStatus = "Partial";
+      else autoStatus = "Unpaid";
+    }
+
+    const { password: _, ...safeStudent } = studentData;
+
+    console.log(`💰 Fee: ${fee} | Paid: ${paid} | Due: ${due}`);
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      source: sourceCollection,
+      student: {
+        ...safeStudent,
+        paidAmount: paid,
+        dueAmount: due,
+        courseFee: fee,
+        scholarshipAmount: scholarship,
+        paymentStatus: autoStatus,
+        // Batch info
+        batchName: batchInfo?.name || "",
+        batchCourse: batchInfo?.course || "",
+        batchTeacher: batchInfo?.teacher || "",
+        batchSchedule: batchInfo?.schedule || "",
+        batchStatus: batchInfo?.status || "",
+        batchClasses,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Dashboard-full error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // ✅ CREATE batch student
 // ✅ CREATE batch student — with scholarship + auto due
 app.post("/api/batch-students/create", async (req, res) => {
@@ -6672,6 +6877,304 @@ app.post("/api/batch-students/create", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ FIND batch_student by identifiers (for student dashboard)
+app.get("/api/batch-students/find-by-identifier", async (req, res) => {
+  try {
+    const { id, studentId, phone, name } = req.query;
+    console.log("📥 GET /api/batch-students/find-by-identifier");
+    console.log("   id:", id || "-", "| studentId:", studentId || "-");
+
+    const coll = getCollection("batch_students");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const orConditions = [];
+
+    // (a) MongoDB _id
+    if (id && String(id).trim()) {
+      try {
+        orConditions.push({ _id: new ObjectId(id.trim()) });
+      } catch (e) {}
+    }
+
+    // (b) studentId — exact + case insensitive
+    if (studentId && String(studentId).trim()) {
+      const sid = String(studentId).trim();
+      orConditions.push({ studentId: sid });
+      orConditions.push({ studentId: { $regex: `^${sid}$`, $options: "i" } });
+    }
+
+    // (c) phone — exact + last 11
+    if (phone && String(phone).trim()) {
+      const p = String(phone).trim();
+      orConditions.push({ phone: p });
+      const last11 = p.replace(/\D/g, "").slice(-11);
+      if (last11.length === 11) {
+        orConditions.push({ phone: { $regex: last11 + "$" } });
+      }
+    }
+
+    // (d) name
+    if (name && String(name).trim()) {
+      orConditions.push({
+        name: { $regex: `^${String(name).trim()}$`, $options: "i" },
+      });
+    }
+
+    if (orConditions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No search criteria provided",
+      });
+    }
+
+    const found = await coll.findOne({ $or: orConditions });
+    if (!found) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found in batch_students",
+      });
+    }
+
+    // ✅ Also fetch the parent batch
+    const batchesData = readBatchesData();
+    const parentBatch = (batchesData.batches || []).find(
+      (b) => String(b._id) === String(found.batchId),
+    );
+
+    console.log("✅ Found:", found.name, "| Batch:", parentBatch?.name);
+
+    res.status(200).json({
+      success: true,
+      student: {
+        ...found,
+        batchName: parentBatch?.name || "",
+        batchCourse: parentBatch?.course || "",
+        batchTeacher: parentBatch?.teacher || "",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ============================================================
+// ✅ STUDENT FULL PROFILE — Multi-source unified endpoint
+// Academic এর মতো multi-identifier search করে সম্পূর্ণ data দেয়
+// ============================================================
+app.get("/api/student/full-profile", async (req, res) => {
+  try {
+    const { id, studentId, phone, name, username, course } = req.query;
+
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/full-profile");
+    console.log("   id:", id || "-", "| studentId:", studentId || "-");
+    console.log("   phone:", phone || "-", "| name:", name || "-");
+    console.log("   username:", username || "-");
+
+    let studentData = null;
+    let sourceCollection = null;
+
+    // ─── STEP 1: batch_students collection এ খোঁজো ───
+    const bsColl = getCollection("batch_students");
+    if (bsColl) {
+      const orConditions = [];
+
+      if (id && String(id).trim()) {
+        try {
+          orConditions.push({ _id: new ObjectId(String(id).trim()) });
+        } catch (e) {}
+      }
+
+      if (studentId && String(studentId).trim()) {
+        const sid = String(studentId).trim();
+        orConditions.push({ studentId: sid });
+        orConditions.push({
+          studentId: { $regex: `^${sid}$`, $options: "i" },
+        });
+      }
+
+      if (phone && String(phone).trim()) {
+        const p = String(phone).trim();
+        orConditions.push({ phone: p });
+        const last11 = p.replace(/\D/g, "").slice(-11);
+        if (last11.length === 11) {
+          orConditions.push({ phone: { $regex: last11 + "$" } });
+        }
+      }
+
+      if (name && String(name).trim() && name !== "Student") {
+        const nm = String(name).trim();
+        orConditions.push({
+          name: { $regex: `^${nm}$`, $options: "i" },
+        });
+        const firstName = nm.split(/\s+/)[0];
+        if (firstName && firstName.length > 3) {
+          orConditions.push({
+            name: { $regex: `^${firstName}`, $options: "i" },
+          });
+        }
+      }
+
+      if (orConditions.length > 0) {
+        const found = await bsColl.findOne({ $or: orConditions });
+        if (found) {
+          studentData = found;
+          sourceCollection = "batch_students";
+          console.log(`✅ Found in batch_students: ${found.name}`);
+        }
+      }
+    }
+
+    // ─── STEP 2: না পেলে students collection ───
+    if (!studentData) {
+      const sColl = getCollection("students");
+      if (sColl) {
+        const orConditions = [];
+        if (id && String(id).trim()) {
+          try {
+            orConditions.push({ _id: new ObjectId(String(id).trim()) });
+          } catch (e) {}
+        }
+        if (studentId && String(studentId).trim()) {
+          orConditions.push({
+            studentId: {
+              $regex: `^${String(studentId).trim()}$`,
+              $options: "i",
+            },
+          });
+        }
+        if (phone && String(phone).trim()) {
+          orConditions.push({ phone: String(phone).trim() });
+        }
+        if (username && String(username).trim()) {
+          orConditions.push({ username: String(username).trim() });
+        }
+
+        if (orConditions.length > 0) {
+          const found = await sColl.findOne({ $or: orConditions });
+          if (found) {
+            studentData = found;
+            sourceCollection = "students";
+            console.log(`✅ Found in students: ${found.name}`);
+          }
+        }
+      }
+    }
+
+    // ─── STEP 3: না পেলে basic_tazweed / najera ───
+    if (!studentData) {
+      for (const collName of [
+        "basic_tazweed_students",
+        "najera_batch_students",
+      ]) {
+        const c = getCollection(collName);
+        if (!c) continue;
+        const orConditions = [];
+        if (id && String(id).trim()) {
+          try {
+            orConditions.push({ _id: new ObjectId(String(id).trim()) });
+          } catch (e) {}
+        }
+        if (studentId && String(studentId).trim()) {
+          orConditions.push({ studentId: String(studentId).trim() });
+        }
+        if (phone && String(phone).trim()) {
+          orConditions.push({ phone: String(phone).trim() });
+        }
+        if (orConditions.length > 0) {
+          const found = await c.findOne({ $or: orConditions });
+          if (found) {
+            studentData = found;
+            sourceCollection = collName;
+            console.log(`✅ Found in ${collName}: ${found.name}`);
+            break;
+          }
+        }
+      }
+    }
+
+    if (!studentData) {
+      console.log("❌ Student not found in any collection");
+      return res.status(404).json({
+        success: false,
+        message: "Student not found in any collection",
+      });
+    }
+
+    // ─── STEP 4: Batch info (batch_students হলে) ───
+    let batchInfo = null;
+    let batchClasses = [];
+
+    if (sourceCollection === "batch_students" && studentData.batchId) {
+      const batchesData = readBatchesData();
+      batchInfo = (batchesData.batches || []).find(
+        (b) => String(b._id) === String(studentData.batchId),
+      );
+
+      const classesColl = getCollection("batch_classes");
+      if (classesColl) {
+        batchClasses = await classesColl
+          .find({ batchId: String(studentData.batchId) })
+          .sort({ createdAt: 1 })
+          .toArray();
+      }
+    }
+
+    // ─── STEP 5: Payment calculation ───
+    const fromMonths = (studentData.paidMonths || []).reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0,
+    );
+    const paid =
+      fromMonths > 0 ? fromMonths : Number(studentData.paidAmount) || 0;
+    const fee =
+      Number(studentData.courseFee) || Number(studentData.monthlyFee) || 0;
+    const scholarship = Number(studentData.scholarshipAmount) || 0;
+    const due = Math.max(fee - scholarship - paid, 0);
+
+    // Auto payment status
+    let autoStatus = studentData.paymentStatus;
+    if (!autoStatus) {
+      if (due === 0 && paid > 0) autoStatus = "Paid";
+      else if (paid > 0) autoStatus = "Partial";
+      else autoStatus = "Unpaid";
+    }
+
+    const { password: _, ...safeStudent } = studentData;
+
+    console.log(
+      `✅ Final → ${studentData.name} | Fee: ${fee} | Paid: ${paid} | Due: ${due}`,
+    );
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      source: sourceCollection,
+      student: {
+        ...safeStudent,
+        paidAmount: paid,
+        dueAmount: due,
+        courseFee: fee,
+        scholarshipAmount: scholarship,
+        paymentStatus: autoStatus,
+        // Batch info
+        batchName: batchInfo?.name || "",
+        batchCourse: batchInfo?.course || "",
+        batchTeacher: batchInfo?.teacher || "",
+        batchSchedule: batchInfo?.schedule || "",
+        batchStatus: batchInfo?.status || "",
+        batchClasses,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Full profile error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
