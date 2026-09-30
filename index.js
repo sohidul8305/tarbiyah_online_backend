@@ -6965,6 +6965,151 @@ app.get("/api/batch-students/find-by-identifier", async (req, res) => {
 });
 
 // ============================================================
+// ✅ ADD PAYMENT — Student pays → update batch_students
+// Frontend Online Payment থেকে call হবে
+// ============================================================
+app.post("/api/batch-students/add-payment", async (req, res) => {
+  try {
+    console.log("════════════════════════════════════════");
+    console.log("📥 POST /api/batch-students/add-payment");
+    console.log("📝 Body:", req.body);
+
+    const { id, studentId, phone, name, amount, method, note, month } =
+      req.body;
+
+    // ✅ Validate amount
+    const payAmount = Number(amount);
+    if (!payAmount || payAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "সঠিক amount দিন (0 এর বেশি)",
+      });
+    }
+
+    const coll = getCollection("batch_students");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    // ✅ Multi-identifier search (same as Academic)
+    const orConditions = [];
+
+    if (id && String(id).trim()) {
+      try {
+        orConditions.push({ _id: new ObjectId(String(id).trim()) });
+      } catch (e) {}
+      orConditions.push({ studentDbId: String(id).trim() });
+    }
+
+    if (studentId && String(studentId).trim()) {
+      const sid = String(studentId).trim();
+      orConditions.push({ studentId: sid });
+      orConditions.push({
+        studentId: { $regex: `^${sid}$`, $options: "i" },
+      });
+    }
+
+    if (phone && String(phone).trim()) {
+      const p = String(phone).trim();
+      orConditions.push({ phone: p });
+      const last11 = p.replace(/\D/g, "").slice(-11);
+      if (last11.length === 11) {
+        orConditions.push({ phone: { $regex: last11 + "$" } });
+      }
+    }
+
+    if (name && String(name).trim() && name !== "Student") {
+      const nm = String(name).trim();
+      orConditions.push({ name: { $regex: `^${nm}$`, $options: "i" } });
+    }
+
+    if (orConditions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No search criteria provided",
+      });
+    }
+
+    // ✅ Find student
+    const student = await coll.findOne({ $or: orConditions });
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found in batch_students",
+      });
+    }
+
+    console.log(`✅ Found student: ${student.name} (${student._id})`);
+
+    // ✅ Build payment record
+    const paymentRecord = {
+      _id: "pay_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+      month: month || new Date().toISOString().slice(0, 7),
+      amount: payAmount,
+      method: method || "bKash",
+      note: note || "",
+      paidAt: new Date().toISOString(),
+    };
+
+    // ✅ Add to paidMonths
+    const updatedPaidMonths = [...(student.paidMonths || []), paymentRecord];
+
+    // ✅ Recalculate paid/due
+    const totalPaid = updatedPaidMonths.reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0,
+    );
+    const fee = Number(student.courseFee) || Number(student.monthlyFee) || 0;
+    const scholarship = Number(student.scholarshipAmount) || 0;
+    const due = Math.max(fee - scholarship - totalPaid, 0);
+
+    // ✅ Auto payment status
+    let autoStatus = "Unpaid";
+    if (due === 0 && totalPaid > 0) autoStatus = "Paid";
+    else if (totalPaid > 0) autoStatus = "Partial";
+
+    // ✅ Update student
+    await coll.updateOne(
+      { _id: student._id },
+      {
+        $set: {
+          paidMonths: updatedPaidMonths,
+          paidAmount: totalPaid,
+          dueAmount: due,
+          paymentStatus: autoStatus,
+          paymentMethod: method || student.paymentMethod || "",
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    const updated = await coll.findOne({ _id: student._id });
+
+    console.log(
+      `💰 Payment added: ৳${payAmount} | Total Paid: ৳${totalPaid} | Due: ৳${due} | Status: ${autoStatus}`,
+    );
+    console.log("════════════════════════════════════════");
+
+    res.status(201).json({
+      success: true,
+      message: `✅ Payment of ৳${payAmount} recorded successfully!`,
+      payment: paymentRecord,
+      student: {
+        _id: updated._id,
+        name: updated.name,
+        paidAmount: updated.paidAmount,
+        dueAmount: updated.dueAmount,
+        paymentStatus: updated.paymentStatus,
+        paidMonths: updated.paidMonths,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Payment error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ============================================================
 // ✅ STUDENT FULL PROFILE — Multi-source unified endpoint
 // Academic এর মতো multi-identifier search করে সম্পূর্ণ data দেয়
 // ============================================================
