@@ -4,6 +4,7 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
+const axios = require("axios");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -494,6 +495,168 @@ app.post("/api/attendance-report/create", (req, res) => {
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ১. পেমেন্ট শুরু করার API (Frontend এখানে কল করবে)
+app.post("/api/payment/sslcommerz/initiate", async (req, res) => {
+  try {
+    console.log("📥 POST /api/payment/sslcommerz/initiate");
+    const {
+      total_amount,
+      cus_name,
+      cus_email,
+      cus_phone,
+      product_name,
+      studentData,
+    } = req.body;
+
+    // SSLCommerz থেকে পাওয়া আপনার ক্রেডেনশিয়াল
+    const store_id = "tarbiyahedu0live";
+    const store_passwd = "64D21B6E4766C94844";
+    const is_live = true; // Live Environment
+
+    // ইউনিক ট্রানজেকশন আইডি তৈরি
+    const tran_id = "TARBIYAH_" + Date.now();
+
+    // SSLCommerz এ পাঠানোর ডাটা
+    const sslData = {
+      store_id: store_id,
+      store_passwd: store_passwd,
+      total_amount: total_amount,
+      currency: "BDT",
+      tran_id: tran_id,
+      success_url: `https://api.tarbiyahonline.com/api/payment/sslcommerz/success`,
+      fail_url: `https://api.tarbiyahonline.com/api/payment/sslcommerz/fail`,
+      cancel_url: `https://api.tarbiyahonline.com/api/payment/sslcommerz/cancel`,
+      ipn_url: `https://api.tarbiyahonline.com/api/payment/sslcommerz/ipn`,
+      cus_name: cus_name,
+      cus_email: cus_email,
+      cus_phone: cus_phone,
+      cus_add1: studentData.presentAddress || "N/A",
+      cus_city: "Dhaka",
+      cus_country: "Bangladesh",
+      shipping_method: "NO",
+      product_name: product_name,
+      product_category: "Education",
+      product_profile: "general",
+    };
+
+    // 💾 ডাটাবেজে সাময়িকভাবে স্টুডেন্ট ডাটা সেভ করা (যাতে পেমেন্ট সফল হলে ট্রানজেকশন আইডি দিয়ে খুঁজে পাওয়া যায়)
+    const pendingColl = getCollection("pending_admissions");
+    if (pendingColl) {
+      await pendingColl.insertOne({
+        tran_id: tran_id,
+        studentData: studentData,
+        amount: total_amount,
+        status: "Pending",
+        createdAt: new Date(),
+      });
+    }
+
+    // SSLCommerz API তে রিকোয়েস্ট পাঠানো
+    const response = await axios.post(
+      "https://securepay.sslcommerz.com/gwprocess/v4/api.php",
+      new URLSearchParams(sslData).toString(),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      },
+    );
+
+    console.log("✅ SSLCommerz Response:", response.data);
+
+    if (response.data && response.data.GatewayPageURL) {
+      res.status(200).json({ GatewayPageURL: response.data.GatewayPageURL });
+    } else {
+      res
+        .status(400)
+        .json({ success: false, message: "পেমেন্ট গেটওয়ে URL পাওয়া যায়নি!" });
+    }
+  } catch (error) {
+    console.error("❌ SSLCommerz Initiate Error:", error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ২. পেমেন্ট সফল হলে SSLCommerz এখানে ডাটা পাঠাবে (POST)
+app.post("/api/payment/sslcommerz/success", async (req, res) => {
+  try {
+    const { val_id, tran_id, amount } = req.body;
+    console.log("✅ Payment Success Callback:", tran_id);
+
+    // SSLCommerz Validation API কল করে পেমেন্ট ভেরিফাই করা
+    const validationUrl = `https://securepay.sslcommerz.com/validator/api/validationserverAPI.php?val_id=${val_id}&store_id=tarbiyahedu0live&store_passwd=64D21B6E4766C94844&format=json`;
+    const valResponse = await axios.get(validationUrl);
+
+    console.log("Validation Status:", valResponse.data.status);
+
+    if (
+      valResponse.data.status === "VALID" ||
+      valResponse.data.status === "VALIDATED"
+    ) {
+      // ✅ পেমেন্ট ভ্যালিড! এখন ডাটাবেজে স্টুডেন্টকে অ্যাড করুন
+      const pendingColl = getCollection("pending_admissions");
+      const pendingData = await pendingColl.findOne({ tran_id: tran_id });
+
+      if (pendingData) {
+        const studentsColl = getCollection("students");
+
+        // স্টুডেন্ট ডাটা তৈরি
+        const newStudent = {
+          ...pendingData.studentData,
+          transactionId: tran_id,
+          paidAmount: amount,
+          paymentStatus: "Paid",
+          paymentMethod: "SSLCommerz",
+          status: "Pending", // অ্যাডমিন অ্যাপ্রুভ করলে Active হবে
+          admissionDate: new Date().toISOString(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        await studentsColl.insertOne(newStudent);
+        await pendingColl.updateOne(
+          { tran_id },
+          { $set: { status: "Completed" } },
+        );
+      }
+
+      // ফ্রন্টএন্ডের সাকসেস পেজে রিডাইরেক্ট করুন
+      return res.redirect(
+        `https://tarbiyahonline.com/payment/success?tran_id=${tran_id}`,
+      );
+    } else {
+      return res.redirect(`https://tarbiyahonline.com/payment/fail`);
+    }
+  } catch (error) {
+    console.error("❌ Success Validation Error:", error.message);
+    res.redirect(`https://tarbiyahonline.com/payment/fail`);
+  }
+});
+
+// ৩. পেমেন্ট ফেইল হলে
+app.post("/api/payment/sslcommerz/fail", async (req, res) => {
+  console.log("❌ Payment Failed:", req.body.tran_id);
+  res.redirect(`https://tarbiyahonline.com/payment/fail`);
+});
+
+// ৪. পেমেন্ট ক্যান্সেল হলে
+app.post("/api/payment/sslcommerz/cancel", async (req, res) => {
+  console.log("🚫 Payment Cancelled:", req.body.tran_id);
+  res.redirect(`https://tarbiyahonline.com/payment/cancel`);
+});
+
+// ৫. IPN (Instant Payment Notification) Listener
+app.post("/api/payment/sslcommerz/ipn", async (req, res) => {
+  try {
+    const { val_id, tran_id, status } = req.body;
+    console.log("🔔 IPN Received:", tran_id, status);
+
+    // এখানেও ভ্যালিডেশন করা ভালো, তবে সাকসেস কলব্যাক থাকলে এটি মূলত ব্যাকআপ হিসেবে কাজ করে।
+    res.status(200).send("IPN Received");
+  } catch (error) {
+    console.error("❌ IPN Error:", error);
+    res.status(500).send("IPN Error");
   }
 });
 
