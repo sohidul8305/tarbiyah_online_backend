@@ -1524,8 +1524,6 @@ app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
   }
 });
 
-// ✅ UPDATE batch student
-// ✅ UPDATE batch student — auto-recalc due when payment/fee changes
 app.put("/api/batch-students/update/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -1539,8 +1537,23 @@ app.put("/api/batch-students/update/:id", async (req, res) => {
 
     const updateData = { ...req.body, updatedAt: new Date() };
     delete updateData._id;
+    delete updateData.batchId;
 
-    // ✅ Auto-recalc paidAmount & dueAmount whenever relevant field changes
+    // ✅ Duplicate studentId check
+    if (updateData.studentId && updateData.studentId !== existing.studentId) {
+      const dup = await coll.findOne({
+        studentId: updateData.studentId,
+        _id: { $ne: new ObjectId(id) },
+      });
+      if (dup) {
+        return res.status(400).json({
+          success: false,
+          message: `Student ID "${updateData.studentId}" ইতিমধ্যে ব্যবহৃত!`,
+        });
+      }
+    }
+
+    // ✅ Auto-recalc due (আপনার আগের কোড থেকে অপরিবর্তিত)
     const willRecalc =
       updateData.paidMonths !== undefined ||
       updateData.scholarshipAmount !== undefined ||
@@ -1552,7 +1565,6 @@ app.put("/api/batch-students/update/:id", async (req, res) => {
         (sum, p) => sum + Number(p.amount || 0),
         0,
       );
-
       const fee = Number(updateData.courseFee ?? existing.courseFee ?? 0);
       const scholarship = Number(
         updateData.scholarshipAmount ?? existing.scholarshipAmount ?? 0,
@@ -1569,18 +1581,11 @@ app.put("/api/batch-students/update/:id", async (req, res) => {
       }
     }
 
-    const result = await coll.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData },
-    );
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: "Not found!" });
-    }
-
+    await coll.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
     const updated = await coll.findOne({ _id: new ObjectId(id) });
+
     console.log(
-      `✅ Updated | Paid: ${updated.paidAmount} | Due: ${updated.dueAmount} | Status: ${updated.paymentStatus}`,
+      `✅ Updated | Paid: ${updated.paidAmount} | Due: ${updated.dueAmount} | Pwd: ${updated.password ? "✓" : "✗"}`,
     );
     res.status(200).json({ success: true, student: updated });
   } catch (error) {
@@ -1588,7 +1593,6 @@ app.put("/api/batch-students/update/:id", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 // ✅ ONE-TIME: fix old batch_students
 app.get("/api/batch-students/fix-old", async (req, res) => {
   try {
@@ -1688,6 +1692,76 @@ app.put("/api/batch-students/update/:id", async (req, res) => {
     }
 
     const updated = await coll.findOne({ _id: new ObjectId(id) });
+    res.status(200).json({ success: true, student: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.put("/api/batch-students/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/batch-students/update/", id);
+
+    const coll = getCollection("batch_students");
+    const existing = await coll.findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+    delete updateData.batchId;
+
+    // ✅ Duplicate studentId check
+    if (updateData.studentId && updateData.studentId !== existing.studentId) {
+      const dup = await coll.findOne({
+        studentId: updateData.studentId,
+        _id: { $ne: new ObjectId(id) },
+      });
+      if (dup) {
+        return res.status(400).json({
+          success: false,
+          message: `Student ID "${updateData.studentId}" ইতিমধ্যে ব্যবহৃত!`,
+        });
+      }
+    }
+
+    // ✅ Auto-recalc due (আপনার আগের কোড থেকে অপরিবর্তিত)
+    const willRecalc =
+      updateData.paidMonths !== undefined ||
+      updateData.scholarshipAmount !== undefined ||
+      updateData.courseFee !== undefined;
+
+    if (willRecalc) {
+      const paidMonths = updateData.paidMonths ?? existing.paidMonths ?? [];
+      const totalPaid = paidMonths.reduce(
+        (sum, p) => sum + Number(p.amount || 0),
+        0,
+      );
+      const fee = Number(updateData.courseFee ?? existing.courseFee ?? 0);
+      const scholarship = Number(
+        updateData.scholarshipAmount ?? existing.scholarshipAmount ?? 0,
+      );
+      const due = Math.max(fee - scholarship - totalPaid, 0);
+
+      updateData.paidAmount = totalPaid;
+      updateData.dueAmount = due;
+
+      if (!updateData.paymentStatus) {
+        if (due === 0 && totalPaid > 0) updateData.paymentStatus = "Paid";
+        else if (totalPaid > 0) updateData.paymentStatus = "Partial";
+        else updateData.paymentStatus = "Unpaid";
+      }
+    }
+
+    await coll.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    const updated = await coll.findOne({ _id: new ObjectId(id) });
+
+    console.log(
+      `✅ Updated | Paid: ${updated.paidAmount} | Due: ${updated.dueAmount} | Pwd: ${updated.password ? "✓" : "✗"}`,
+    );
     res.status(200).json({ success: true, student: updated });
   } catch (error) {
     console.error("❌ Error:", error);
@@ -2150,12 +2224,9 @@ app.put("/api/students/approve/:id", async (req, res) => {
   }
 });
 // =============================================
-// ✅ STUDENT LOGIN — সব collection-এ খুঁজবে
+// ✅ STUDENT LOGIN — ৪টি collection-এ খুঁজবে
+// ✅ প্রতিটি student এর নিজস্ব password থাকতে হবে (কোনো default নয়)
 // =============================================
-// =============================================
-// ✅ STUDENT LOGIN — ৩টি collection-এ খুঁজবে
-// =============================================
-// ✅ STUDENT LOGIN — ৪টি collection-এ খুঁজবে (batch_students সহ)
 app.post("/api/students/login", async (req, res) => {
   try {
     console.log("════════════════════════════════");
@@ -2172,10 +2243,9 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ ৪টি collection-এ খুঁজব
     const collectionNames = [
       "students",
-      "batch_students", // ⬅️ NEW — Admin LMS students
+      "batch_students",
       "basic_tazweed_students",
       "najera_batch_students",
     ];
@@ -2195,7 +2265,7 @@ app.post("/api/students/login", async (req, res) => {
           { username: loginId },
           { username: regex },
           { roll: loginId },
-          { phone: loginId }, // ⬅️ phone দিয়েও login
+          { phone: loginId },
         ],
       });
 
@@ -2225,16 +2295,18 @@ app.post("/api/students/login", async (req, res) => {
       });
     }
 
-    // ✅ Password check
-    let storedPassword = student.password;
+    // ✅ মূল পরিবর্তন: password না থাকলে login নাকচ
+    const storedPassword = (student.password || "").trim();
+
     if (!storedPassword) {
-      // batch_students / tazweed / najera → default password
-      if (studentCollectionName !== "students") {
-        storedPassword = "student123S@";
-      }
+      return res.status(401).json({
+        success: false,
+        message:
+          "আপনার অ্যাকাউন্টে এখনও পাসওয়ার্ড সেট করা হয়নি। অ্যাডমিনের সাথে যোগাযোগ করুন।",
+      });
     }
 
-    if (storedPassword && storedPassword !== password) {
+    if (storedPassword !== password.trim()) {
       return res.status(401).json({
         success: false,
         message: "স্টুডেন্ট আইডি বা পাসওয়ার্ড ভুল!",
@@ -2257,10 +2329,108 @@ app.post("/api/students/login", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Login Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.put("/api/students/approve/:id", async (req, res) => {
+  try {
+    console.log("📥 PUT /api/students/approve/:id");
+    console.log("📝 Body:", req.body);
+
+    const { id } = req.params;
+    const { studentId, password, roll } = req.body;
+
+    if (!studentId || !studentId.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Student ID আবশ্যক!",
+      });
+    }
+
+    if (!password || !password.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Password আবশ্যক!",
+      });
+    }
+
+    // ✅ batch_students যোগ করা হয়েছে
+    const collectionNames = [
+      "students",
+      "batch_students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
+
+    let foundCollection = null;
+    let foundCollectionName = null;
+    let student = null;
+
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+      try {
+        const found = await coll.findOne({ _id: new ObjectId(id) });
+        if (found) {
+          foundCollection = coll;
+          foundCollectionName = name;
+          student = found;
+          console.log(`✅ Found in "${name}":`, student.name);
+          break;
+        }
+      } catch (e) {}
+    }
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found in any collection!",
+      });
+    }
+
+    // ✅ Duplicate studentId check — সব collection-এ
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+      const existing = await coll.findOne({
+        studentId: studentId.trim(),
+        _id: { $ne: new ObjectId(id) },
+      });
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: `Student ID "${studentId}" ইতিমধ্যে অন্য একজন ব্যবহার করছে!`,
+        });
+      }
+    }
+
+    await foundCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          studentId: studentId.trim(),
+          password: password.trim(), // ✅ এখানে unique password save হবে
+          roll: roll || "",
+          status: "Active",
+          approvedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    console.log(`✅ Approved in "${foundCollectionName}"`);
+    console.log(`🆔 Student ID: ${studentId} | 🔑 Password: ${password}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Student approved successfully!",
+      studentId: studentId.trim(),
+      collection: foundCollectionName,
     });
+  } catch (error) {
+    console.error("❌ Approve Error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -6012,6 +6182,7 @@ app.post("/api/batch-classes/create", async (req, res) => {
     const {
       batchId,
       name,
+      password,
       classNo, // ⬅️ NEW
       classDate, // ⬅️ NEW
       day,
@@ -7249,6 +7420,7 @@ app.post("/api/batch-students/create", async (req, res) => {
       phone: phone || "",
       country: country || "BD",
       course: course || "",
+      password: password || "",
 
       // ⬇️ নতুন
       scholarshipAmount: scholarship,
