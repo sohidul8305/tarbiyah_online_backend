@@ -2360,6 +2360,155 @@ app.post("/api/students/login", async (req, res) => {
   }
 });
 
+// =============================================
+// ✅ CAMPUS LOGIN — Due থাকলে Login Allow নয়
+// =============================================
+app.post("/api/students/campus-login", async (req, res) => {
+  try {
+    console.log("════════════════════════════════════════");
+    console.log("📥 POST /api/students/campus-login");
+    console.log("📤 Body:", {
+      studentId: req.body.studentId || req.body.username,
+      password: "***",
+    });
+
+    const { studentId, username, password } = req.body;
+    const loginId = (studentId || username || "").trim();
+
+    if (!loginId || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "স্টুডেন্ট আইডি এবং পাসওয়ার্ড আবশ্যক!",
+      });
+    }
+
+    const collectionNames = [
+      "students",
+      "batch_students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
+
+    const regex = new RegExp("^" + loginId + "$", "i");
+    let student = null;
+    let studentCollectionName = null;
+
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+
+      const found = await coll.findOne({
+        $or: [
+          { studentId: loginId },
+          { studentId: regex },
+          { username: loginId },
+          { username: regex },
+          { roll: loginId },
+          { phone: loginId },
+        ],
+      });
+
+      if (found) {
+        student = found;
+        studentCollectionName = name;
+        console.log(`✅ Found in "${name}":`, student.name);
+        break;
+      }
+    }
+
+    if (!student) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "স্টুডেন্ট আইডি বা পাসওয়ার্ড ভুল! অথবা আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি।",
+      });
+    }
+
+    // Active check
+    if (studentCollectionName === "students" && student.status !== "Active") {
+      return res.status(401).json({
+        success: false,
+        message:
+          "আপনার অ্যাকাউন্ট এখনও অ্যাপ্রুভ হয়নি। অ্যাডমিনের সাথে যোগাযোগ করুন।",
+      });
+    }
+
+    // Password check
+    const storedPassword = (student.password || "").trim();
+    if (!storedPassword) {
+      return res.status(401).json({
+        success: false,
+        message: "আপনার অ্যাকাউন্টে পাসওয়ার্ড সেট করা হয়নি।",
+      });
+    }
+    if (storedPassword !== password.trim()) {
+      return res.status(401).json({
+        success: false,
+        message: "স্টুডেন্ট আইডি বা পাসওয়ার্ড ভুল!",
+      });
+    }
+
+    // ============================================
+    // ✅ DUE CHECK — এখানেই Campus block হবে
+    // ============================================
+    const fromMonths = (student.paidMonths || []).reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0,
+    );
+    const paid =
+      fromMonths > 0 ? fromMonths : Number(student.paidAmount) || 0;
+    const fee =
+      Number(student.courseFee) || Number(student.monthlyFee) || 0;
+    const scholarship = Number(student.scholarshipAmount) || 0;
+
+    let due;
+    if (
+      student.dueAmount !== undefined &&
+      student.dueAmount !== null &&
+      student.dueAmount !== ""
+    ) {
+      due = Math.max(Number(student.dueAmount), 0);
+    } else {
+      due = Math.max(fee - scholarship - paid, 0);
+    }
+
+    console.log(`💰 Fee: ${fee} | Paid: ${paid} | Due: ${due}`);
+
+    if (due > 0) {
+      // ✅ Due আছে → Login Allow নয়
+      console.log(`❌ BLOCKED: Due ৳${due}`);
+      console.log("════════════════════════════════════════");
+
+      return res.status(403).json({
+        success: false,
+        blocked: true,
+        dueAmount: due,
+        message: `আপনার বকেয়া ৳${due} পরিশোধ করা হয়নি। Campus-এ প্রবেশের আগে monthly payment সম্পূর্ণ করুন।`,
+        studentName: student.name,
+        studentId: student.studentId || student.roll || "",
+      });
+    }
+
+    const { password: _, ...studentWithoutPassword } = student;
+
+    console.log(`✅ Campus Login OK: ${student.name}`);
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      message: "লগইন সফল!",
+      user: {
+        ...studentWithoutPassword,
+        loginSource: studentCollectionName,
+      },
+      token: "campus_" + Date.now() + "_" + student._id,
+    });
+  } catch (error) {
+    console.error("❌ Campus Login Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.put("/api/students/approve/:id", async (req, res) => {
   try {
     console.log("📥 PUT /api/students/approve/:id");
