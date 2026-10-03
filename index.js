@@ -1160,11 +1160,84 @@ app.put("/api/support/ticket/:id/status", async (req, res) => {
   }
 });
 
+// ✅ Get tickets by student (studentId / phone / email)
+app.get("/api/support/my-tickets", async (req, res) => {
+  try {
+    const { studentId, phone, email } = req.query;
+
+    if (!studentId && !phone && !email) {
+      return res.status(400).json({
+        success: false,
+        message: "studentId, phone or email required",
+      });
+    }
+
+    const data = readSupportData();
+    let tickets = data.tickets || [];
+
+    const filtered = tickets.filter((t) => {
+      if (studentId && t.studentId === studentId.trim()) return true;
+      if (phone && t.phone === phone.trim()) return true;
+      if (
+        email &&
+        t.email &&
+        t.email.toLowerCase() === email.trim().toLowerCase()
+      )
+        return true;
+      return false;
+    });
+
+    const sorted = filtered.sort(
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt) -
+        new Date(a.updatedAt || a.createdAt),
+    );
+
+    // Count unread admin replies
+    const withUnread = sorted.map((t) => ({
+      ...t,
+      hasUnreadAdminReply:
+        t.lastReplyBy === "admin" && t.studentLastSeenAt !== t.lastReplyAt,
+    }));
+
+    res.json({
+      success: true,
+      total: withUnread.length,
+      unread: withUnread.filter((t) => t.hasUnreadAdminReply).length,
+      tickets: withUnread,
+    });
+  } catch (error) {
+    console.error("❌ My-tickets Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ Mark ticket as seen by student
+app.put("/api/support/ticket/:id/student-seen", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readSupportData();
+    const index = data.tickets.findIndex((t) => t._id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    data.tickets[index].studentLastSeenAt =
+      data.tickets[index].lastReplyAt || new Date().toISOString();
+    writeSupportData(data);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ Delete Support Ticket — (already আছে, replace করবেন না)
+
 // ➕ রিপ্লাই দেওয়ার রাউট (Admin)
+// ➕ রিপ্লাই দেওয়ার রাউট (Admin + Student উভয়ের জন্য)
 app.post("/api/support/ticket/:id/reply", async (req, res) => {
   try {
     const { id } = req.params;
-    const { message } = req.body;
+    const { message, role } = req.body;
 
     if (!message)
       return res
@@ -1180,13 +1253,29 @@ app.post("/api/support/ticket/:id/reply", async (req, res) => {
 
     if (!data.tickets[index].replies) data.tickets[index].replies = [];
 
+    // ✅ Role অনুযায়ী আলাদা handling
+    const replyRole = role === "user" ? "user" : "admin";
+
     data.tickets[index].replies.push({
-      role: "admin",
-      message: message,
+      role: replyRole,
+      message: message.trim(),
       date: new Date().toLocaleString(),
+      timestamp: new Date().toISOString(),
     });
 
-    data.tickets[index].status = "In Progress";
+    if (replyRole === "admin") {
+      // Admin reply → status In Progress, ticket read হবে
+      data.tickets[index].status = "In Progress";
+      data.tickets[index].isRead = true;
+      data.tickets[index].hasUnreadStudentReply = false;
+    } else {
+      // Student reply → Admin এর জন্য unread হবে
+      data.tickets[index].isRead = false;
+      data.tickets[index].hasUnreadStudentReply = true;
+    }
+
+    data.tickets[index].lastReplyBy = replyRole;
+    data.tickets[index].lastReplyAt = new Date().toISOString();
     data.tickets[index].updatedAt = new Date().toISOString();
 
     writeSupportData(data);
