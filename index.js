@@ -7555,6 +7555,7 @@ app.post("/api/batch-students/create", async (req, res) => {
       phone,
       country,
       course,
+      password, // ✅ FIX: password যোগ করা হলো
       paymentStatus,
 
       // ⬇️ নতুন ফিল্ড
@@ -7619,7 +7620,7 @@ app.post("/api/batch-students/create", async (req, res) => {
       phone: phone || "",
       country: country || "BD",
       course: course || "",
-      password: password || "",
+      password: (password && String(password).trim()) || "", // ✅ এখন কাজ করবে
 
       // ⬇️ নতুন
       scholarshipAmount: scholarship,
@@ -7643,7 +7644,7 @@ app.post("/api/batch-students/create", async (req, res) => {
     const result = await coll.insertOne(newStudent);
     console.log("✅ Batch student created:", result.insertedId);
     console.log(
-      `💰 Fee: ${fee} | Scholarship: ${scholarship} | Paid: ${paid} | Due: ${due}`,
+      `💰 Fee: ${fee} | Scholarship: ${scholarship} | Paid: ${paid} | Due: ${due} | Pwd: ${password ? "✓" : "✗"}`,
     );
 
     res.status(201).json({
