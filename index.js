@@ -2455,10 +2455,8 @@ app.post("/api/students/campus-login", async (req, res) => {
       (sum, p) => sum + Number(p.amount || 0),
       0,
     );
-    const paid =
-      fromMonths > 0 ? fromMonths : Number(student.paidAmount) || 0;
-    const fee =
-      Number(student.courseFee) || Number(student.monthlyFee) || 0;
+    const paid = fromMonths > 0 ? fromMonths : Number(student.paidAmount) || 0;
+    const fee = Number(student.courseFee) || Number(student.monthlyFee) || 0;
     const scholarship = Number(student.scholarshipAmount) || 0;
 
     let due;
@@ -5449,6 +5447,9 @@ app.get("/api/batches/debug-list", (req, res) => {
 });
 
 // ✅ CREATE / UPSERT grade
+// =============================================
+// ✅ GRADES — CREATE / UPDATE (Flexible: batch + regular students)
+// =============================================
 app.post("/api/grades/create", (req, res) => {
   try {
     console.log("📥 POST /api/grades/create");
@@ -5458,6 +5459,7 @@ app.post("/api/grades/create", (req, res) => {
       studentId,
       studentName,
       studentRoll,
+      batchId, // ✅ NEW
       courseId,
       courseTitle,
       courseCode,
@@ -5478,17 +5480,19 @@ app.post("/api/grades/create", (req, res) => {
 
     const data = readGradesData();
 
-    // ✅ Check if grade already exists for this student+course
+    // ✅ UPSERT — same student + course থাকলে update
     const existingIndex = data.grades.findIndex(
-      (g) => g.studentId === studentId && g.courseId === courseId,
+      (g) =>
+        String(g.studentId) === String(studentId) &&
+        String(g.courseId) === String(courseId),
     );
 
     if (existingIndex !== -1) {
-      // Update existing
       data.grades[existingIndex] = {
         ...data.grades[existingIndex],
         studentName: studentName || data.grades[existingIndex].studentName,
         studentRoll: studentRoll || data.grades[existingIndex].studentRoll,
+        batchId: batchId || data.grades[existingIndex].batchId,
         courseTitle: courseTitle || data.grades[existingIndex].courseTitle,
         courseCode: courseCode || data.grades[existingIndex].courseCode,
         grad: grad !== undefined ? grad : data.grades[existingIndex].grad,
@@ -5521,10 +5525,11 @@ app.post("/api/grades/create", (req, res) => {
 
     const newGrade = {
       _id: Date.now().toString() + Math.floor(Math.random() * 1000),
-      studentId,
+      studentId: String(studentId),
       studentName: studentName || "",
       studentRoll: studentRoll || "",
-      courseId,
+      batchId: batchId ? String(batchId) : "",
+      courseId: String(courseId),
       courseTitle: courseTitle || "",
       courseCode: courseCode || "",
       grad: grad || "N/A",
@@ -5547,6 +5552,24 @@ app.post("/api/grades/create", (req, res) => {
       message: "✅ Grade published successfully!",
       grade: newGrade,
     });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ GRADES — Get all grades for a batch (Admin LMS)
+// =============================================
+app.get("/api/grades/batch/:batchId", (req, res) => {
+  try {
+    const { batchId } = req.params;
+    console.log("📥 GET /api/grades/batch/", batchId);
+    const data = readGradesData();
+    const grades = (data.grades || []).filter(
+      (g) => String(g.batchId) === String(batchId),
+    );
+    res.json({ success: true, total: grades.length, grades });
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
