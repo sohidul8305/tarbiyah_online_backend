@@ -2122,6 +2122,7 @@ app.post("/api/students/register/student", async (req, res) => {
       password,
       course,
       enrolledCourses: enrolledIds, // ⬅️ এখানে save হবে
+      department: req.body.department || "",
       presentAddress: presentAddress || "",
       permanentAddress: permanentAddress || "",
       dobOrNid: dobOrNid || "",
@@ -8321,6 +8322,52 @@ app.delete("/api/batch-videos/delete-by-batch/:batchId", async (req, res) => {
     );
     res.status(200).json({ success: true, deleted: result.deletedCount });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ GET STUDENTS BY DEPARTMENT (New Admission filter)
+// =============================================
+app.get("/api/students/by-department/:deptKey", async (req, res) => {
+  try {
+    const { deptKey } = req.params;
+    const decodedKey = decodeURIComponent(deptKey).trim();
+    console.log("📥 GET /api/students/by-department/", decodedKey);
+
+    const studentsCollection = getCollection("students");
+    if (!studentsCollection) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const allStudents = await studentsCollection
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const filtered = allStudents.filter((s) => {
+      const deptField = (s.department || "").toLowerCase().trim();
+      const courseStr = String(s.course || "").toLowerCase();
+      const key = decodedKey.toLowerCase();
+
+      if (deptField === key) return true;
+      if (courseStr.includes(key)) return true;
+      return false;
+    });
+
+    const sanitized = filtered.map((s) => {
+      const { password, ...rest } = s;
+      return rest;
+    });
+
+    console.log(`✅ Found ${sanitized.length} students for "${decodedKey}"`);
+    res.status(200).json({
+      success: true,
+      total: sanitized.length,
+      students: sanitized,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
