@@ -8463,6 +8463,57 @@ app.get("/api/debug-student-departments", async (req, res) => {
   }
 });
 
+// =============================================
+// ✅ DEBUG — সব collection-এর count একসাথে
+// =============================================
+app.get("/api/debug-all-collections-count", async (req, res) => {
+  try {
+    const collections = [
+      "students",
+      "batch_students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
+
+    const results = {};
+
+    for (const name of collections) {
+      try {
+        const coll = getCollection(name);
+        if (coll) {
+          const count = await coll.countDocuments();
+          const sample = await coll.findOne({});
+          results[name] = {
+            count,
+            hasData: count > 0,
+            sampleDoc: sample
+              ? {
+                  _id: sample._id,
+                  name: sample.name,
+                  department: sample.department || "(none)",
+                  course: sample.course || "(none)",
+                  batchId: sample.batchId || "(none)",
+                }
+              : null,
+          };
+        } else {
+          results[name] = { error: "collection not found" };
+        }
+      } catch (e) {
+        results[name] = { error: e.message };
+      }
+    }
+
+    res.json({
+      success: true,
+      databaseName: getDB()?.databaseName || "unknown",
+      collections: results,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.get("/api/teacher-attendance/stats", (req, res) => {
   try {
     const { month, year, department } = req.query; // ✅ department যোগ
