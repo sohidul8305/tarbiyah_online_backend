@@ -50,36 +50,6 @@ const DEPARTMENT_COURSES = {
   Diploma: ["diploma in islamic studies", "diploma", "certificate"],
 };
 
-// ✅ Student এই department-এর কিনা — STRICT চেক
-function studentMatchesDepartment(student, department) {
-  if (!department || department === "All") return true;
-
-  const target = String(department).toLowerCase().trim();
-
-  // 1️⃣ student.department field সরাসরি match
-  const sDept = String(student.department || "")
-    .toLowerCase()
-    .trim();
-  if (sDept && sDept === target) return true;
-
-  // 2️⃣ Course name EXACT match (substring নয়)
-  const allowedCourses =
-    DEPARTMENT_COURSES[
-      Object.keys(DEPARTMENT_COURSES).find((k) => k.toLowerCase() === target)
-    ];
-
-  if (allowedCourses && student.course) {
-    const studentCourses = String(student.course)
-      .split(",")
-      .map((c) => c.trim().toLowerCase())
-      .filter(Boolean);
-
-    return studentCourses.some((sc) => allowedCourses.includes(sc));
-  }
-
-  return false;
-}
-
 // ✅ একই রকম filter — batch, teacher, fee-র জন্য
 function teacherMatchesDepartment(teacher, department) {
   if (!department || department === "All") return true;
@@ -108,18 +78,6 @@ function batchMatchesDepartment(batch, department) {
   return allowedCourses
     ? allowedCourses.some((c) => bCourse.includes(c))
     : false;
-}
-
-// ✅ Department নাম থেকে keyword list বের করা
-// ✅ Exact/normalized match — substring matching বন্ধ
-function getDepartmentKeywords(department) {
-  if (!department || department === "All") return null;
-  const key = Object.keys(DEPARTMENT_COURSES).find(
-    (k) => k.toLowerCase() === String(department).toLowerCase().trim(),
-  );
-  return key
-    ? DEPARTMENT_COURSES[key]
-    : [String(department).toLowerCase().trim()];
 }
 
 // ✅ STRICT: শুধু student.department field দিয়ে exact match
@@ -160,23 +118,6 @@ function studentMatchesDepartment(student, department) {
   }
 
   return false;
-}
-
-// ✅ Student match করে কিনা check
-function studentMatchesDepartment(student, department) {
-  const keywords = getDepartmentKeywords(department);
-  if (!keywords) return true; // "All" হলে সব দেখাবে
-
-  const fields = [
-    (student.department || "").toLowerCase(),
-    String(student.course || "").toLowerCase(),
-    (student.batch || "").toLowerCase(),
-  ];
-
-  // যেকোনো field-এ যেকোনো keyword match হলে true
-  return keywords.some((kw) =>
-    fields.some((f) => f.includes(kw.toLowerCase())),
-  );
 }
 
 // =============================================
@@ -4011,70 +3952,7 @@ app.get("/api/students/my-courses/:studentId", async (req, res) => {
 
 // GET ALL
 // CREATE
-app.post("/api/today-classes", async (req, res) => {
-  try {
-    console.log("📥 POST /api/today-classes");
-    console.log("📝 Body:", req.body);
 
-    const {
-      name,
-      subject,
-      class: classLevel,
-      teacher,
-      time,
-      days,
-      room,
-      status,
-      link,
-      department,
-      totalStudents,
-    } = req.body;
-
-    if (!name || !subject || !teacher || !time) {
-      return res.status(400).json({
-        success: false,
-        message: "Class Name, Subject, Teacher, and Time are required!",
-      });
-    }
-
-    const data = readClassesData();
-
-    const newClass = {
-      _id: Date.now().toString(),
-      id: data.classes.length + 1,
-      name,
-      subject,
-      class: classLevel || "",
-      classNo: finalClassNo,
-      teacher,
-      time,
-      days: days || [],
-      room: room || "",
-      status: status || "Upcoming",
-      link: link || "",
-      department: department || "",
-      students: parseInt(totalStudents) || 0,
-      totalStudents: parseInt(totalStudents) || 0,
-      attendance: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    data.classes.push(newClass);
-    writeClassesData(data);
-
-    console.log("✅ Class created:", newClass.name);
-
-    res.status(201).json({
-      success: true,
-      message: "Class created successfully!",
-      class: newClass,
-    });
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
 // CREATE
 app.post("/api/today-classes", async (req, res) => {
   try {
@@ -8742,65 +8620,6 @@ app.get("/api/teacher-attendance/stats", (req, res) => {
 // =============================================
 // ✅ ONE-TIME MIGRATION: Set department on all existing students
 // =============================================
-app.get("/api/migrate/set-departments", async (req, res) => {
-  try {
-    const studentsColl = getCollection("students");
-    const students = await studentsColl.find({}).toArray();
-    let updated = 0;
-
-    for (const s of students) {
-      // Skip if already set
-      if (s.department && s.department.trim()) continue;
-
-      const courseStr = String(s.course || "").toLowerCase();
-      let dept = "";
-
-      // Detect department from course
-      if (
-        courseStr.includes("qaida") ||
-        courseStr.includes("nazera") ||
-        courseStr.includes("najera") ||
-        courseStr.includes("bakarah") ||
-        courseStr.includes("tajweed") ||
-        courseStr.includes("quran for elders")
-      ) {
-        dept = "Elders";
-      } else if (
-        courseStr.includes("quran studies") ||
-        courseStr.includes("hifzul quran")
-      ) {
-        dept = "Quran Studies";
-      } else if (
-        courseStr.includes("alimiya") ||
-        courseStr.includes("dawra") ||
-        courseStr.includes("tafsir") ||
-        courseStr.includes("fiqh") ||
-        courseStr.includes("hadith")
-      ) {
-        dept = "Alimiya";
-      } else if (courseStr.includes("diploma")) {
-        dept = "Diploma";
-      }
-
-      if (dept) {
-        await studentsColl.updateOne(
-          { _id: s._id },
-          { $set: { department: dept, updatedAt: new Date() } },
-        );
-        updated++;
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `✅ ${updated} students updated with department`,
-      total: students.length,
-      updated,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
 
 // ✅ একবার চালানোর migration — পুরনো student-দের department set করে
 app.get("/api/migrate/set-departments", async (req, res) => {
