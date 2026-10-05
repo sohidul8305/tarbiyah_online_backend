@@ -20,6 +20,52 @@ app.use(
 );
 
 // =============================================
+// ✅ DEPARTMENT → KEYWORDS MAPPING
+// =============================================
+const DEPARTMENT_KEYWORDS = {
+  Elders: ["elders", "elder", "বয়স্ক", "quran for elders"],
+  "Quran Studies": ["quran studies", "quran", "কুরআন", "quran for"],
+  Alimiya: ["alimiya", "alim", "আলিমিয়া", "alimiyyah"],
+  Diploma: ["diploma", "ডিপ্লোমা"],
+};
+
+// ✅ Department নাম থেকে keyword list বের করা
+function getDepartmentKeywords(department) {
+  if (!department || department === "All") return null;
+
+  // Exact match first
+  if (DEPARTMENT_KEYWORDS[department]) {
+    return DEPARTMENT_KEYWORDS[department];
+  }
+
+  // Case-insensitive match
+  const key = Object.keys(DEPARTMENT_KEYWORDS).find(
+    (k) => k.toLowerCase() === department.toLowerCase().trim(),
+  );
+  if (key) return DEPARTMENT_KEYWORDS[key];
+
+  // Fallback: department নামটাই keyword
+  return [department.toLowerCase().trim()];
+}
+
+// ✅ Student match করে কিনা check
+function studentMatchesDepartment(student, department) {
+  const keywords = getDepartmentKeywords(department);
+  if (!keywords) return true; // "All" হলে সব দেখাবে
+
+  const fields = [
+    (student.department || "").toLowerCase(),
+    String(student.course || "").toLowerCase(),
+    (student.batch || "").toLowerCase(),
+  ];
+
+  // যেকোনো field-এ যেকোনো keyword match হলে true
+  return keywords.some((kw) =>
+    fields.some((f) => f.includes(kw.toLowerCase())),
+  );
+}
+
+// =============================================
 // ✅ GRADES ROUTES (JSON File Based)
 // =============================================
 const GRADES_FILE = path.join(__dirname, "grades.json");
@@ -1951,6 +1997,55 @@ app.delete("/api/batches/delete/:id", (req, res) => {
 // =============================================
 // ✅ STUDENT ROUTES
 // =============================================
+
+// GET ALL STUDENTS — with department filter
+app.get("/api/students/all", async (req, res) => {
+  try {
+    const { department } = req.query;
+    console.log("📥 GET /api/students/all | dept:", department || "All");
+
+    const studentsCollection = getCollection("students");
+    if (!studentsCollection) {
+      return res.status(500).json({
+        success: false,
+        message: "Database collection not found!",
+      });
+    }
+
+    // সব student আনি
+    const allStudents = await studentsCollection
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    // ✅ Helper দিয়ে filter করি
+    const filtered =
+      department && department !== "All"
+        ? allStudents.filter((s) => studentMatchesDepartment(s, department))
+        : allStudents;
+
+    console.log(
+      `✅ ${filtered.length}/${allStudents.length} students for "${department || "All"}"`,
+    );
+
+    // Password hide
+    const sanitizedStudents = filtered.map((s) => {
+      const { password, ...rest } = s;
+      return rest;
+    });
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: sanitizedStudents.length,
+      totalInDB: allStudents.length,
+      students: sanitizedStudents,
+    });
+  } catch (error) {
+    console.error("❌ Error in /all:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // GET ALL STUDENTS
 app.get("/api/students/all", async (req, res) => {
@@ -5252,6 +5347,47 @@ app.get("/api/batches/all", (req, res) => {
   }
 });
 
+// GET ALL BATCHES — with department filter
+app.get("/api/batches/all", (req, res) => {
+  try {
+    const { department } = req.query;
+    console.log("📥 GET /api/batches/all | dept:", department || "All");
+
+    const data = readBatchesData();
+    const allBatches = (data.batches || []).sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+    );
+
+    // ✅ Helper এর keywords দিয়ে filter
+    const keywords = getDepartmentKeywords(department);
+    const batches = keywords
+      ? allBatches.filter((b) => {
+          const fields = [
+            (b.course || "").toLowerCase(),
+            (b.name || "").toLowerCase(),
+          ];
+          return keywords.some((kw) =>
+            fields.some((f) => f.includes(kw.toLowerCase())),
+          );
+        })
+      : allBatches;
+
+    console.log(
+      `✅ ${batches.length}/${allBatches.length} batches for "${department || "All"}"`,
+    );
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: batches.length,
+      batches,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ CREATE BATCH
 app.post("/api/batches/create", (req, res) => {
   try {
@@ -8321,6 +8457,43 @@ app.delete("/api/batch-videos/delete-by-batch/:batchId", async (req, res) => {
       `✅ Deleted ${result.deletedCount} videos for batch ${batchId}`,
     );
     res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ DEBUG — Student data structure দেখা
+// =============================================
+app.get("/api/debug-student-departments", async (req, res) => {
+  try {
+    const studentsColl = getCollection("students");
+    const students = await studentsColl.find({}).toArray();
+
+    const summary = students.map((s) => ({
+      _id: s._id,
+      name: s.name,
+      department: s.department || "(empty)",
+      course: s.course || "(empty)",
+      batch: s.batch || "(empty)",
+      status: s.status,
+    }));
+
+    // Unique department values
+    const uniqueDepts = [
+      ...new Set(students.map((s) => s.department).filter(Boolean)),
+    ];
+    const uniqueCourses = [
+      ...new Set(students.map((s) => s.course).filter(Boolean)),
+    ];
+
+    res.json({
+      success: true,
+      totalStudents: students.length,
+      uniqueDepartments: uniqueDepts,
+      uniqueCourses: uniqueCourses,
+      students: summary,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
