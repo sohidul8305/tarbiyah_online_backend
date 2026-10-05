@@ -80,46 +80,6 @@ function batchMatchesDepartment(batch, department) {
     : false;
 }
 
-// ✅ STRICT: শুধু student.department field দিয়ে exact match
-function studentMatchesDepartment(student, department) {
-  if (!department || department === "All") return true;
-
-  const target = String(department).toLowerCase().trim();
-
-  // 1️⃣ Priority 1: exact department field
-  const sDept = String(student.department || "")
-    .toLowerCase()
-    .trim();
-  if (sDept && sDept === target) return true;
-
-  // 2️⃣ Priority 2: course list-এ exact match (includes না — exact)
-  const courses =
-    DEPARTMENT_COURSES[
-      Object.keys(DEPARTMENT_COURSES).find((k) => k.toLowerCase() === target)
-    ];
-
-  if (courses && student.course) {
-    const studentCourses = String(student.course)
-      .split(",")
-      .map((c) => c.trim().toLowerCase())
-      .filter(Boolean);
-
-    // ✅ Exact match only — substring নয়
-    return studentCourses.some((sc) => courses.some((dc) => dc === sc));
-  }
-
-  // 3️⃣ Fallback: department field না থাকলে exact course name
-  if (student.course) {
-    const studentCourses = String(student.course)
-      .split(",")
-      .map((c) => c.trim().toLowerCase())
-      .filter(Boolean);
-    return studentCourses.some((sc) => sc === target);
-  }
-
-  return false;
-}
-
 // =============================================
 // ✅ GRADES ROUTES (JSON File Based)
 // =============================================
