@@ -22,30 +22,144 @@ app.use(
 // =============================================
 // ✅ DEPARTMENT → KEYWORDS MAPPING
 // =============================================
-const DEPARTMENT_KEYWORDS = {
-  Elders: ["elders", "elder", "বয়স্ক", "quran for elders"],
-  "Quran Studies": ["quran studies", "quran", "কুরআন", "quran for"],
-  Alimiya: ["alimiya", "alim", "আলিমিয়া", "alimiyyah"],
-  Diploma: ["diploma", "ডিপ্লোমা"],
+// =============================================
+// ✅ STRICT DEPARTMENT FILTER (100% reliable)
+// =============================================
+
+// ✅ শুধু এই keyword-গুলো কাজ করবে — কোনো fuzzy match নেই
+const DEPARTMENT_COURSES = {
+  Elders: [
+    "qaida nuraniyah",
+    "qaida nooraniya",
+    "quran nazera",
+    "najera",
+    "bakarah hifz",
+    "basic tajweed",
+    "basic tajweed (level-1)",
+    "quran for elders",
+  ],
+  "Quran Studies": ["quran studies", "hifzul quran", "tarbiyah quran studies"],
+  Alimiya: [
+    "alimiya",
+    "dawra e hadith",
+    "tafsir",
+    "fiqh",
+    "hadith",
+    "arabic grammar",
+  ],
+  Diploma: ["diploma in islamic studies", "diploma", "certificate"],
 };
 
-// ✅ Department নাম থেকে keyword list বের করা
-function getDepartmentKeywords(department) {
-  if (!department || department === "All") return null;
+// ✅ Student এই department-এর কিনা — STRICT চেক
+function studentMatchesDepartment(student, department) {
+  if (!department || department === "All") return true;
 
-  // Exact match first
-  if (DEPARTMENT_KEYWORDS[department]) {
-    return DEPARTMENT_KEYWORDS[department];
+  const target = String(department).toLowerCase().trim();
+
+  // 1️⃣ student.department field সরাসরি match
+  const sDept = String(student.department || "")
+    .toLowerCase()
+    .trim();
+  if (sDept && sDept === target) return true;
+
+  // 2️⃣ Course name EXACT match (substring নয়)
+  const allowedCourses =
+    DEPARTMENT_COURSES[
+      Object.keys(DEPARTMENT_COURSES).find((k) => k.toLowerCase() === target)
+    ];
+
+  if (allowedCourses && student.course) {
+    const studentCourses = String(student.course)
+      .split(",")
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+
+    return studentCourses.some((sc) => allowedCourses.includes(sc));
   }
 
-  // Case-insensitive match
-  const key = Object.keys(DEPARTMENT_KEYWORDS).find(
-    (k) => k.toLowerCase() === department.toLowerCase().trim(),
-  );
-  if (key) return DEPARTMENT_KEYWORDS[key];
+  return false;
+}
 
-  // Fallback: department নামটাই keyword
-  return [department.toLowerCase().trim()];
+// ✅ একই রকম filter — batch, teacher, fee-র জন্য
+function teacherMatchesDepartment(teacher, department) {
+  if (!department || department === "All") return true;
+  const target = String(department).toLowerCase().trim();
+  const tDept = String(teacher.department || "")
+    .toLowerCase()
+    .trim();
+  return tDept === target;
+}
+
+function batchMatchesDepartment(batch, department) {
+  if (!department || department === "All") return true;
+  const target = String(department).toLowerCase().trim();
+  const bDept = String(batch.department || "")
+    .toLowerCase()
+    .trim();
+  if (bDept && bDept === target) return true;
+  // Fallback: course match
+  const bCourse = String(batch.course || "")
+    .toLowerCase()
+    .trim();
+  const allowedCourses =
+    DEPARTMENT_COURSES[
+      Object.keys(DEPARTMENT_COURSES).find((k) => k.toLowerCase() === target)
+    ];
+  return allowedCourses
+    ? allowedCourses.some((c) => bCourse.includes(c))
+    : false;
+}
+
+// ✅ Department নাম থেকে keyword list বের করা
+// ✅ Exact/normalized match — substring matching বন্ধ
+function getDepartmentKeywords(department) {
+  if (!department || department === "All") return null;
+  const key = Object.keys(DEPARTMENT_COURSES).find(
+    (k) => k.toLowerCase() === String(department).toLowerCase().trim(),
+  );
+  return key
+    ? DEPARTMENT_COURSES[key]
+    : [String(department).toLowerCase().trim()];
+}
+
+// ✅ STRICT: শুধু student.department field দিয়ে exact match
+function studentMatchesDepartment(student, department) {
+  if (!department || department === "All") return true;
+
+  const target = String(department).toLowerCase().trim();
+
+  // 1️⃣ Priority 1: exact department field
+  const sDept = String(student.department || "")
+    .toLowerCase()
+    .trim();
+  if (sDept && sDept === target) return true;
+
+  // 2️⃣ Priority 2: course list-এ exact match (includes না — exact)
+  const courses =
+    DEPARTMENT_COURSES[
+      Object.keys(DEPARTMENT_COURSES).find((k) => k.toLowerCase() === target)
+    ];
+
+  if (courses && student.course) {
+    const studentCourses = String(student.course)
+      .split(",")
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+
+    // ✅ Exact match only — substring নয়
+    return studentCourses.some((sc) => courses.some((dc) => dc === sc));
+  }
+
+  // 3️⃣ Fallback: department field না থাকলে exact course name
+  if (student.course) {
+    const studentCourses = String(student.course)
+      .split(",")
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+    return studentCourses.some((sc) => sc === target);
+  }
+
+  return false;
 }
 
 // ✅ Student match করে কিনা check
@@ -2012,13 +2126,12 @@ app.get("/api/students/all", async (req, res) => {
       });
     }
 
-    // সব student আনি
     const allStudents = await studentsCollection
       .find({})
       .sort({ createdAt: -1 })
       .toArray();
 
-    // ✅ Helper দিয়ে filter করি
+    // ✅ এই লাইনটাই আসল filter — helper call করা হচ্ছে
     const filtered =
       department && department !== "All"
         ? allStudents.filter((s) => studentMatchesDepartment(s, department))
@@ -2028,7 +2141,6 @@ app.get("/api/students/all", async (req, res) => {
       `✅ ${filtered.length}/${allStudents.length} students for "${department || "All"}"`,
     );
 
-    // Password hide
     const sanitizedStudents = filtered.map((s) => {
       const { password, ...rest } = s;
       return rest;
@@ -3632,20 +3744,24 @@ app.delete("/api/teacher-attendance/delete/:id", (req, res) => {
 // =============================================
 app.get("/api/teacher-attendance/stats", (req, res) => {
   try {
-    const { month, year } = req.query;
+    const { month, year, department } = req.query;
     const data = readAttData();
     let records = data.attendance || [];
-    const allTeachers = getFullAttTeachers();
+    let allTeachers = getFullAttTeachers();
 
-    if (month !== undefined && year !== undefined) {
-      records = records.filter((r) => {
-        const d = new Date(r.date);
-        return (
-          d.getMonth() === parseInt(month) && d.getFullYear() === parseInt(year)
+    // ✅ Department filter
+    if (department && department !== "All") {
+      const keywords = getDepartmentKeywords(department);
+      allTeachers = allTeachers.filter((t) => {
+        const fields = [
+          (t.department || "").toLowerCase(),
+          (t.subject || "").toLowerCase(),
+        ];
+        return keywords.some((kw) =>
+          fields.some((f) => f.includes(kw.toLowerCase())),
         );
       });
     }
-
     const stats = allTeachers.map((t) => {
       const tr = records.filter((r) => String(r.teacherId) === String(t.id));
       const present = tr.filter((r) => r.status === "Present").length;
@@ -5358,7 +5474,6 @@ app.get("/api/batches/all", (req, res) => {
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     );
 
-    // ✅ Helper এর keywords দিয়ে filter
     const keywords = getDepartmentKeywords(department);
     const batches = keywords
       ? allBatches.filter((b) => {
@@ -6481,19 +6596,50 @@ app.get("/api/batches/course-videos/:courseName", (req, res) => {
 // ✅ GET all batch students (optional filter by batchId)
 app.get("/api/batch-students/all", async (req, res) => {
   try {
-    const { batchId } = req.query;
-    console.log("📥 GET /api/batch-students/all | batchId:", batchId || "All");
+    const { batchId, department } = req.query;
+    console.log(
+      "📥 GET /api/batch-students/all | batchId:",
+      batchId || "All",
+      "| dept:",
+      department || "All",
+    );
 
     const coll = getCollection("batch_students");
     if (!coll) {
       return res.status(500).json({ success: false, message: "DB not found!" });
     }
 
-    const query = batchId ? { batchId: String(batchId) } : {};
-    const students = await coll.find(query).sort({ createdAt: -1 }).toArray();
+    const query = {};
+    if (batchId) query.batchId = String(batchId);
 
-    console.log(`✅ Found ${students.length} students`);
-    res.status(200).json({ success: true, total: students.length, students });
+    const allStudents = await coll
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const keywords = getDepartmentKeywords(department);
+    const students = keywords
+      ? allStudents.filter((s) => {
+          const fields = [
+            (s.course || "").toLowerCase(),
+            (s.department || "").toLowerCase(),
+          ];
+          return keywords.some((kw) =>
+            fields.some((f) => f.includes(kw.toLowerCase())),
+          );
+        })
+      : allStudents;
+
+    console.log(
+      `✅ ${students.length}/${allStudents.length} batch_students for "${department || "All"}"`,
+    );
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: students.length,
+      students,
+    });
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -6505,26 +6651,6 @@ app.get("/api/batch-students/all", async (req, res) => {
 // =============================================
 
 // ✅ GET all batch students (optional filter by batchId)
-app.get("/api/batch-students/all", async (req, res) => {
-  try {
-    const { batchId } = req.query;
-    console.log("📥 GET /api/batch-students/all | batchId:", batchId || "All");
-
-    const coll = getCollection("batch_students");
-    if (!coll) {
-      return res.status(500).json({ success: false, message: "DB not found!" });
-    }
-
-    const query = batchId ? { batchId: String(batchId) } : {};
-    const students = await coll.find(query).sort({ createdAt: -1 }).toArray();
-
-    console.log(`✅ Found ${students.length} students`);
-    res.status(200).json({ success: true, total: students.length, students });
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
 
 // ✅ UPDATE batch student
 app.put("/api/batch-students/update/:id", async (req, res) => {
@@ -8500,6 +8626,232 @@ app.get("/api/debug-student-departments", async (req, res) => {
 });
 
 // =============================================
+// ✅ DEBUG — সব collection-এর count একসাথে
+// =============================================
+app.get("/api/debug-all-collections-count", async (req, res) => {
+  try {
+    const collections = [
+      "students",
+      "batch_students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
+
+    const results = {};
+
+    for (const name of collections) {
+      try {
+        const coll = getCollection(name);
+        if (coll) {
+          const count = await coll.countDocuments();
+          const sample = await coll.findOne({});
+          results[name] = {
+            count,
+            hasData: count > 0,
+            sampleDoc: sample
+              ? {
+                  _id: sample._id,
+                  name: sample.name,
+                  department: sample.department || "(none)",
+                  course: sample.course || "(none)",
+                  batchId: sample.batchId || "(none)",
+                }
+              : null,
+          };
+        } else {
+          results[name] = { error: "collection not found" };
+        }
+      } catch (e) {
+        results[name] = { error: e.message };
+      }
+    }
+
+    res.json({
+      success: true,
+      databaseName: getDB()?.databaseName || "unknown",
+      collections: results,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get("/api/teacher-attendance/stats", (req, res) => {
+  try {
+    const { month, year, department } = req.query; // ✅ department যোগ
+    const data = readAttData();
+    let records = data.attendance || [];
+    let allTeachers = getFullAttTeachers();
+
+    // ✅ Department filter — teachers এর department/subject দেখে
+    if (department && department !== "All") {
+      const keywords = getDepartmentKeywords(department);
+      allTeachers = allTeachers.filter((t) => {
+        const fields = [
+          (t.department || "").toLowerCase(),
+          (t.subject || "").toLowerCase(),
+        ];
+        return keywords.some((kw) =>
+          fields.some((f) => f.includes(kw.toLowerCase())),
+        );
+      });
+    }
+
+    if (month !== undefined && year !== undefined) {
+      records = records.filter((r) => {
+        const d = new Date(r.date);
+        return (
+          d.getMonth() === parseInt(month) && d.getFullYear() === parseInt(year)
+        );
+      });
+    }
+
+    const stats = allTeachers.map((t) => {
+      const tr = records.filter((r) => String(r.teacherId) === String(t.id));
+      const present = tr.filter((r) => r.status === "Present").length;
+      const absent = tr.filter((r) => r.status === "Absent").length;
+      const late = tr.filter((r) => r.status === "Late").length;
+      const leave = tr.filter((r) => r.status === "Leave").length;
+      const total = tr.length;
+      const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
+
+      return {
+        teacherId: t.id,
+        teacherName: t.name,
+        teacherCode: t.teacherId,
+        department: t.department || "",
+        subject: t.subject || "",
+        total,
+        present,
+        absent,
+        late,
+        leave,
+        percentage,
+      };
+    });
+
+    res
+      .status(200)
+      .json({ success: true, department: department || "All", stats });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ ONE-TIME MIGRATION: Set department on all existing students
+// =============================================
+app.get("/api/migrate/set-departments", async (req, res) => {
+  try {
+    const studentsColl = getCollection("students");
+    const students = await studentsColl.find({}).toArray();
+    let updated = 0;
+
+    for (const s of students) {
+      // Skip if already set
+      if (s.department && s.department.trim()) continue;
+
+      const courseStr = String(s.course || "").toLowerCase();
+      let dept = "";
+
+      // Detect department from course
+      if (
+        courseStr.includes("qaida") ||
+        courseStr.includes("nazera") ||
+        courseStr.includes("najera") ||
+        courseStr.includes("bakarah") ||
+        courseStr.includes("tajweed") ||
+        courseStr.includes("quran for elders")
+      ) {
+        dept = "Elders";
+      } else if (
+        courseStr.includes("quran studies") ||
+        courseStr.includes("hifzul quran")
+      ) {
+        dept = "Quran Studies";
+      } else if (
+        courseStr.includes("alimiya") ||
+        courseStr.includes("dawra") ||
+        courseStr.includes("tafsir") ||
+        courseStr.includes("fiqh") ||
+        courseStr.includes("hadith")
+      ) {
+        dept = "Alimiya";
+      } else if (courseStr.includes("diploma")) {
+        dept = "Diploma";
+      }
+
+      if (dept) {
+        await studentsColl.updateOne(
+          { _id: s._id },
+          { $set: { department: dept, updatedAt: new Date() } },
+        );
+        updated++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `✅ ${updated} students updated with department`,
+      total: students.length,
+      updated,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ একবার চালানোর migration — পুরনো student-দের department set করে
+app.get("/api/migrate/set-departments", async (req, res) => {
+  try {
+    const coll = getCollection("students");
+    const students = await coll.find({}).toArray();
+    let updated = 0;
+
+    for (const s of students) {
+      if (s.department && s.department.trim()) continue;
+
+      const c = String(s.course || "").toLowerCase();
+      let dept = "";
+
+      if (
+        c.includes("qaida") ||
+        c.includes("nazera") ||
+        c.includes("najera") ||
+        c.includes("bakarah") ||
+        c.includes("tajweed") ||
+        c.includes("quran for elders")
+      )
+        dept = "Elders";
+      else if (c.includes("quran studies") || c.includes("hifzul quran"))
+        dept = "Quran Studies";
+      else if (
+        c.includes("alimiya") ||
+        c.includes("dawra") ||
+        c.includes("tafsir") ||
+        c.includes("fiqh") ||
+        c.includes("hadith")
+      )
+        dept = "Alimiya";
+      else if (c.includes("diploma")) dept = "Diploma";
+
+      if (dept) {
+        await coll.updateOne(
+          { _id: s._id },
+          { $set: { department: dept, updatedAt: new Date() } },
+        );
+        updated++;
+      }
+    }
+
+    res.json({ success: true, updated, total: students.length });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
 // ✅ GET STUDENTS BY DEPARTMENT (New Admission filter)
 // =============================================
 app.get("/api/students/by-department/:deptKey", async (req, res) => {
@@ -8598,6 +8950,7 @@ startServer();
 process.on("SIGINT", async () => {
   console.log("\n🔄 Shutting down gracefully...");
   await closeDB();
+
   console.log("✅ Server closed");
   process.exit(0);
 });
