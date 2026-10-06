@@ -60,6 +60,43 @@ function teacherMatchesDepartment(teacher, department) {
   return tDept === target;
 }
 
+// =============================================
+// ✅ getDepartmentKeywords — department → keyword list
+// =============================================
+function getDepartmentKeywords(department) {
+  if (!department || department === "All") return null;
+  const target = String(department).toLowerCase().trim();
+  const key = Object.keys(DEPARTMENT_COURSES).find(
+    (k) => k.toLowerCase() === target,
+  );
+  return key ? DEPARTMENT_COURSES[key] : null;
+}
+
+// =============================================
+// ✅ studentMatchesDepartment — admission students filter
+// =============================================
+function studentMatchesDepartment(student, department) {
+  if (!department || department === "All") return true;
+  const target = String(department).toLowerCase().trim();
+  const sDept = String(student.department || "")
+    .toLowerCase()
+    .trim();
+
+  // Priority 1: department field থাকলে strict match
+  if (sDept) return sDept === target;
+
+  // Priority 2: পুরনো student — course/batch keyword দিয়ে
+  const keywords = getDepartmentKeywords(department);
+  if (!keywords) return false;
+  const fields = [
+    String(student.course || "").toLowerCase(),
+    String(student.batch || "").toLowerCase(),
+  ];
+  return keywords.some((kw) =>
+    fields.some((f) => f.includes(kw.toLowerCase())),
+  );
+}
+
 function batchMatchesDepartment(batch, department) {
   if (!department || department === "All") return true;
 
@@ -7944,10 +7981,10 @@ app.post("/api/batch-students/create", async (req, res) => {
       phone,
       country,
       course,
-      password, // ✅ FIX: password যোগ করা হলো
+      password,
+      department, // ✅ NEW — department যোগ করা হলো
       paymentStatus,
 
-      // ⬇️ নতুন ফিল্ড
       scholarshipAmount,
       scholarshipNote,
       courseFee,
@@ -8009,9 +8046,9 @@ app.post("/api/batch-students/create", async (req, res) => {
       phone: phone || "",
       country: country || "BD",
       course: course || "",
-      password: (password && String(password).trim()) || "", // ✅ এখন কাজ করবে
+      department: department || "", // ✅ NEW — department save
+      password: (password && String(password).trim()) || "",
 
-      // ⬇️ নতুন
       scholarshipAmount: scholarship,
       scholarshipNote: scholarshipNote || "",
       courseFee: fee,
@@ -8033,7 +8070,7 @@ app.post("/api/batch-students/create", async (req, res) => {
     const result = await coll.insertOne(newStudent);
     console.log("✅ Batch student created:", result.insertedId);
     console.log(
-      `💰 Fee: ${fee} | Scholarship: ${scholarship} | Paid: ${paid} | Due: ${due} | Pwd: ${password ? "✓" : "✗"}`,
+      `💰 Fee: ${fee} | Scholarship: ${scholarship} | Paid: ${paid} | Due: ${due} | Dept: ${department || "N/A"} | Pwd: ${password ? "✓" : "✗"}`,
     );
 
     res.status(201).json({
