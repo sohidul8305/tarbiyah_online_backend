@@ -4127,16 +4127,44 @@ app.put("/api/today-classes/:id/status", async (req, res) => {
 // =============================================
 
 // ✅ GET ALL
-app.get("/api/basic-tazweed/all", async (req, res) => {
+app.get("/api/najera-batch/all", async (req, res) => {
   try {
-    console.log("📥 GET /api/basic-tazweed/all");
-    const collection = getCollection("basic_tazweed_students");
-    if (!collection) {
+    const { department } = req.query;
+    console.log("📥 GET /api/najera-batch/all | dept:", department || "All");
+
+    const collection = getCollection("najera_batch_students");
+    if (!collection)
       return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const allStudents = await collection
+      .find({})
+      .sort({ studentId: 1 })
+      .toArray();
+
+    // ✅ Department filter
+    let students = allStudents;
+    if (department && department !== "All") {
+      const deptLower = department.toLowerCase().trim();
+      students = allStudents.filter((s) => {
+        const sDept = String(s.department || "")
+          .toLowerCase()
+          .trim();
+        if (sDept && sDept === deptLower) return true;
+        // Fallback: Najera সবসময় Elders
+        if (deptLower.includes("elder")) return true;
+        return false;
+      });
     }
-    const students = await collection.find({}).sort({ studentId: 1 }).toArray();
-    console.log(`✅ Found ${students.length} students`);
-    res.status(200).json({ success: true, total: students.length, students });
+
+    console.log(
+      `✅ ${students.length}/${allStudents.length} for "${department || "All"}"`,
+    );
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: students.length,
+      students,
+    });
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -9005,6 +9033,179 @@ app.delete("/api/fees/delete/:id", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// =============================================
+// ✅ INVOICE API — MongoDB (invoices collection)
+// =============================================
+
+// ✅ CREATE
+app.post("/api/invoices/create", async (req, res) => {
+  try {
+    const {
+      department,
+      invoiceNumber,
+      studentName,
+      studentId,
+      class: className,
+      batch,
+      subject,
+      month,
+      year,
+      amount,
+      paidAmount,
+      dueAmount,
+      issueDate,
+      dueDate,
+      paymentDate,
+      paymentMethod,
+      transactionId,
+      notes,
+      items,
+      subtotal,
+      tax,
+      total,
+    } = req.body;
+
+    if (!department || !studentName || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: "department, studentName, amount আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("invoices");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const paid = Number(paidAmount) || 0;
+    const tot = Number(amount) || 0;
+    const due = Math.max(tot - paid, 0);
+    const status = due <= 0 ? "Paid" : paid > 0 ? "Partial" : "Unpaid";
+
+    const newInvoice = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      department: String(department).trim(),
+      invoiceNumber: invoiceNumber || `INV-${Date.now()}`,
+      studentName: String(studentName).trim(),
+      studentId: studentId || "",
+      class: className || "",
+      batch: batch || "",
+      subject: subject || "",
+      month: month || "",
+      year: Number(year) || new Date().getFullYear(),
+      amount: tot,
+      paidAmount: paid,
+      dueAmount: due,
+      status,
+      issueDate: issueDate || new Date().toISOString().split("T")[0],
+      dueDate: dueDate || "",
+      paymentDate:
+        paid > 0 ? paymentDate || new Date().toISOString().split("T")[0] : null,
+      paymentMethod: paid > 0 ? paymentMethod || "" : null,
+      transactionId:
+        paid > 0
+          ? transactionId || `TXN${Date.now().toString().slice(-6)}`
+          : null,
+      notes: notes || "",
+      items: Array.isArray(items) ? items : [],
+      subtotal: Number(subtotal) || tot,
+      tax: Number(tax) || 0,
+      total: Number(total) || tot,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await coll.insertOne(newInvoice);
+    console.log(
+      `✅ Invoice created: ${newInvoice.invoiceNumber} (${department})`,
+    );
+
+    res.status(201).json({ success: true, invoice: newInvoice });
+  } catch (error) {
+    console.error("❌ Invoice create error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL — department filter
+app.get("/api/invoices/all", async (req, res) => {
+  try {
+    const { department } = req.query;
+    console.log("📥 GET /api/invoices/all | dept:", department || "All");
+
+    const coll = getCollection("invoices");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const query = {};
+    if (department && department !== "All") query.department = department;
+
+    const invoices = await coll.find(query).sort({ createdAt: -1 }).toArray();
+    console.log(`✅ Found ${invoices.length} invoices`);
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: invoices.length,
+      invoices,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE
+app.put("/api/invoices/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("invoices");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+
+    // Auto-recalc
+    if (
+      updateData.amount !== undefined ||
+      updateData.paidAmount !== undefined
+    ) {
+      const existing = await coll.findOne({ _id: id });
+      if (existing) {
+        const tot = Number(updateData.amount ?? existing.amount) || 0;
+        const paid = Number(updateData.paidAmount ?? existing.paidAmount) || 0;
+        const due = Math.max(tot - paid, 0);
+        updateData.dueAmount = due;
+        updateData.status = due <= 0 ? "Paid" : paid > 0 ? "Partial" : "Unpaid";
+      }
+    }
+
+    const result = await coll.updateOne({ _id: id }, { $set: updateData });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: id });
+    res.status(200).json({ success: true, invoice: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/invoices/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("invoices");
+    const result = await coll.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // =============================================
 // ✅ 404 HANDLER
 // =============================================
@@ -9013,6 +9214,594 @@ app.use((req, res) => {
     success: false,
     message: `Route not found: ${req.method} ${req.url}`,
   });
+});
+
+// =============================================
+// ✅ REPORT API — MongoDB (reports collection)
+// =============================================
+
+// ✅ CREATE
+app.post("/api/reports/create", async (req, res) => {
+  try {
+    const {
+      department,
+      reportName,
+      reportType,
+      month,
+      year,
+      course,
+      status,
+      format,
+      description,
+      generatedBy,
+    } = req.body;
+
+    if (!department || !reportName || !reportType) {
+      return res.status(400).json({
+        success: false,
+        message: "department, reportName, reportType আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("reports");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const newReport = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      department: String(department).trim(),
+      reportName: String(reportName).trim(),
+      reportType,
+      month: Number(month) || 0,
+      year: Number(year) || new Date().getFullYear(),
+      course: course || "All",
+      status: status || "All",
+      format: format || "PDF",
+      description: description || "",
+      generatedDate: new Date().toISOString().split("T")[0],
+      generatedBy: generatedBy || "Admin",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await coll.insertOne(newReport);
+    console.log(`✅ Report created: ${newReport.reportName} (${department})`);
+    res.status(201).json({ success: true, report: newReport });
+  } catch (error) {
+    console.error("❌ Report create error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL — department filter
+app.get("/api/reports/all", async (req, res) => {
+  try {
+    const { department } = req.query;
+    console.log("📥 GET /api/reports/all | dept:", department || "All");
+
+    const coll = getCollection("reports");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const query = {};
+    if (department && department !== "All") query.department = department;
+
+    const reports = await coll.find(query).sort({ createdAt: -1 }).toArray();
+    console.log(`✅ Found ${reports.length} reports`);
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: reports.length,
+      reports,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/reports/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("reports");
+    const result = await coll.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ ATTENDANCE REPORT API — with department filter
+// =============================================
+
+// ✅ GET ALL — with department filter
+app.get("/api/attendance-report/all", async (req, res) => {
+  try {
+    const { date, status, class: cls, subject, department } = req.query;
+    console.log(
+      "📥 GET /api/attendance-report/all | dept:",
+      department || "All",
+    );
+
+    const data = readStudentAtt();
+    let records = data.attendance || [];
+
+    // ✅ Department filter — strict
+    if (department && department !== "All") {
+      const deptLower = department.toLowerCase().trim();
+      records = records.filter((r) => {
+        const rDept = String(r.department || "")
+          .toLowerCase()
+          .trim();
+        if (rDept && rDept === deptLower) return true;
+        // Fallback: match via subject/course keyword
+        const rSubj = String(r.subject || "").toLowerCase();
+        const rCourse = String(r.course || "").toLowerCase();
+        return rSubj.includes(deptLower) || rCourse.includes(deptLower);
+      });
+      console.log(
+        `🎯 Filtered to ${records.length} records for "${department}"`,
+      );
+    }
+
+    // Other filters
+    if (date) records = records.filter((r) => r.date === date);
+    if (status && status !== "All")
+      records = records.filter((r) => r.status === status);
+    if (cls && cls !== "All") records = records.filter((r) => r.class === cls);
+    if (subject && subject !== "All")
+      records = records.filter((r) => r.subject === subject);
+
+    // Sort newest first
+    records.sort((a, b) => {
+      if (a.date !== b.date) return new Date(b.date) - new Date(a.date);
+      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    });
+
+    // Stats
+    const today = new Date().toISOString().split("T")[0];
+    const todayRecords = records.filter((r) => r.date === today);
+    const presentToday = todayRecords.filter(
+      (r) => r.status === "Present",
+    ).length;
+    const absentToday = todayRecords.filter(
+      (r) => r.status === "Absent",
+    ).length;
+    const lateToday = todayRecords.filter((r) => r.status === "Late").length;
+    const leaveToday = todayRecords.filter((r) => r.status === "Leave").length;
+    const totalPresent = records.filter((r) => r.status === "Present").length;
+    const overall =
+      records.length > 0
+        ? Math.round((totalPresent / records.length) * 100)
+        : 0;
+
+    const uniqueClasses = [
+      ...new Set(records.map((r) => r.class).filter(Boolean)),
+    ];
+    const uniqueSubjects = [
+      ...new Set(records.map((r) => r.subject).filter(Boolean)),
+    ];
+    const uniqueStatuses = [
+      ...new Set(records.map((r) => r.status).filter(Boolean)),
+    ];
+
+    res.json({
+      success: true,
+      department: department || "All",
+      total: records.length,
+      records,
+      stats: {
+        totalRecords: records.length,
+        presentToday,
+        absentToday,
+        lateToday,
+        leaveToday,
+        overallAttendance: overall,
+      },
+      uniqueClasses,
+      uniqueSubjects,
+      uniqueStatuses,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE — with department field
+app.post("/api/attendance-report/create", (req, res) => {
+  try {
+    console.log("📥 POST /api/attendance-report/create");
+    const body = req.body;
+
+    if (!body.studentName || !body.class || !body.subject || !body.date) {
+      return res.status(400).json({
+        success: false,
+        message: "Student, Class, Subject, Date আবশ্যক!",
+      });
+    }
+
+    const data = readStudentAtt();
+
+    const newRecord = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      id: Date.now(),
+      studentName: body.studentName,
+      studentId: body.studentId || "",
+      class: body.class,
+      subject: body.subject,
+      date: body.date,
+      status: body.status || "Present",
+      checkIn: body.status !== "Absent" ? body.checkIn || "" : "",
+      checkOut: body.status !== "Absent" ? body.checkOut || "" : "",
+      teacher: body.teacher || "",
+      note: body.note || "",
+      department: body.department || "", // ✅ NEW
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.attendance.push(newRecord);
+    writeStudentAtt(data);
+
+    console.log(
+      "✅ Attendance created:",
+      newRecord._id,
+      "| dept:",
+      newRecord.department,
+    );
+    res.status(201).json({ success: true, record: newRecord });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE
+app.put("/api/attendance-report/update/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readStudentAtt();
+    const index = data.attendance.findIndex((r) => r._id === id);
+
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.attendance[index] = {
+      ...data.attendance[index],
+      ...req.body,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeStudentAtt(data);
+    res.json({ success: true, record: data.attendance[index] });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/attendance-report/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readStudentAtt();
+    const filtered = data.attendance.filter((r) => r._id !== id);
+
+    if (filtered.length === data.attendance.length) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.attendance = filtered;
+    writeStudentAtt(data);
+    res.json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ BULK CREATE — with department
+app.post("/api/attendance-report/bulk-create", (req, res) => {
+  try {
+    const { records, department } = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "records আবশ্যক!" });
+    }
+
+    const data = readStudentAtt();
+    const created = [];
+
+    records.forEach((body) => {
+      if (!body.studentName || !body.class || !body.subject || !body.date)
+        return;
+
+      const newRecord = {
+        _id: Date.now().toString() + Math.floor(Math.random() * 100000),
+        id: Date.now() + Math.random(),
+        studentName: body.studentName,
+        studentId: body.studentId || "",
+        class: body.class,
+        subject: body.subject,
+        date: body.date,
+        status: body.status || "Present",
+        checkIn: body.status !== "Absent" ? body.checkIn || "" : "",
+        checkOut: body.status !== "Absent" ? body.checkOut || "" : "",
+        teacher: body.teacher || "",
+        note: body.note || "",
+        department: department || body.department || "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      data.attendance.push(newRecord);
+      created.push(newRecord);
+    });
+
+    writeStudentAtt(data);
+    res
+      .status(201)
+      .json({ success: true, total: created.length, records: created });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ INCOME API — MongoDB (incomes collection)
+// =============================================
+
+// ✅ CREATE
+app.post("/api/income/create", async (req, res) => {
+  try {
+    const {
+      department,
+      source,
+      category,
+      amount,
+      date,
+      method,
+      status,
+      description,
+      receivedBy,
+      transactionId,
+    } = req.body;
+
+    if (!department || !source || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: "department, source, amount আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("incomes");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const newIncome = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      department: String(department).trim(),
+      source: String(source).trim(),
+      category: category || "Other",
+      amount: Number(amount) || 0,
+      date: date || new Date().toISOString().split("T")[0],
+      method: method || "Cash",
+      status: status || "Received",
+      description: description || "",
+      receivedBy: receivedBy || "",
+      transactionId: transactionId || `TXN${Date.now().toString().slice(-6)}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await coll.insertOne(newIncome);
+    console.log(`✅ Income created: ${newIncome.source} (${department})`);
+    res.status(201).json({ success: true, income: newIncome });
+  } catch (error) {
+    console.error("❌ Income create error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL — with department filter
+app.get("/api/income/all", async (req, res) => {
+  try {
+    const { department } = req.query;
+    console.log("📥 GET /api/income/all | dept:", department || "All");
+
+    const coll = getCollection("incomes");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const query = {};
+    if (department && department !== "All") query.department = department;
+
+    const incomes = await coll.find(query).sort({ createdAt: -1 }).toArray();
+    console.log(`✅ Found ${incomes.length} income records`);
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: incomes.length,
+      incomes,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE
+app.put("/api/income/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("incomes");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+
+    const result = await coll.updateOne({ _id: id }, { $set: updateData });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: id });
+    res.status(200).json({ success: true, income: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/income/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("incomes");
+    const result = await coll.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ CRM DATA ENTRY API — MongoDB (crm_entries collection)
+// =============================================
+
+// ✅ CREATE
+app.post("/api/crm/create", async (req, res) => {
+  try {
+    const {
+      department,
+      student,
+      guardian,
+      whatsapp,
+      interested,
+      status,
+      nextFollowUp,
+      notes,
+      enteredBy,
+    } = req.body;
+
+    if (!department || !student || !whatsapp) {
+      return res.status(400).json({
+        success: false,
+        message: "department, student, whatsapp আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("crm_entries");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const newEntry = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      department: String(department).trim(),
+      student: String(student).trim(),
+      guardian: guardian || "",
+      whatsapp: String(whatsapp).trim(),
+      interested: interested || "",
+      status: status || "Interested",
+      nextFollowUp: nextFollowUp || "",
+      notes: notes || "",
+      enteredBy: enteredBy || "Admin",
+      source: "crm",
+      createdAt: new Date().toISOString().split("T")[0],
+      createdAtFull: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await coll.insertOne(newEntry);
+    console.log(`✅ CRM entry created: ${newEntry.student} (${department})`);
+    res.status(201).json({ success: true, entry: newEntry });
+  } catch (error) {
+    console.error("❌ CRM create error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL — department filter
+app.get("/api/crm/all", async (req, res) => {
+  try {
+    const { department } = req.query;
+    console.log("📥 GET /api/crm/all | dept:", department || "All");
+
+    const coll = getCollection("crm_entries");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const query = {};
+    if (department && department !== "All") query.department = department;
+
+    const entries = await coll
+      .find(query)
+      .sort({ createdAtFull: -1 })
+      .toArray();
+    console.log(`✅ Found ${entries.length} CRM entries`);
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: entries.length,
+      entries,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE
+app.put("/api/crm/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("crm_entries");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+    delete updateData.createdAtFull;
+
+    const result = await coll.updateOne({ _id: id }, { $set: updateData });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: id });
+    res.status(200).json({ success: true, entry: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/crm/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("crm_entries");
+    const result = await coll.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 // =============================================
 // ✅ ERROR HANDLER
