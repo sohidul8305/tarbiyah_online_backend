@@ -5302,6 +5302,9 @@ app.get("/api/batches/all", (req, res) => {
 });
 
 // GET ALL BATCHES — with department filter
+// =============================================
+// ✅ GET ALL BATCHES — STRICT department filter
+// =============================================
 app.get("/api/batches/all", (req, res) => {
   try {
     const { department } = req.query;
@@ -5312,18 +5315,11 @@ app.get("/api/batches/all", (req, res) => {
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     );
 
-    const keywords = getDepartmentKeywords(department);
-    const batches = keywords
-      ? allBatches.filter((b) => {
-          const fields = [
-            (b.course || "").toLowerCase(),
-            (b.name || "").toLowerCase(),
-          ];
-          return keywords.some((kw) =>
-            fields.some((f) => f.includes(kw.toLowerCase())),
-          );
-        })
-      : allBatches;
+    // ✅ STRICT: use batchMatchesDepartment — exact department field match first
+    const batches =
+      department && department !== "All"
+        ? allBatches.filter((b) => batchMatchesDepartment(b, department))
+        : allBatches;
 
     console.log(
       `✅ ${batches.length}/${allBatches.length} batches for "${department || "All"}"`,
