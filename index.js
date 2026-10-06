@@ -6668,15 +6668,11 @@ app.get("/api/batches/course-videos/:courseName", (req, res) => {
 // =============================================
 
 // ✅ GET all batch students (optional filter by batchId)
+// ✅ GET all batch students (optional filter by batchId)
 app.get("/api/batch-students/all", async (req, res) => {
   try {
     const { batchId, department } = req.query;
-    console.log(
-      "📥 GET /api/batch-students/all | batchId:",
-      batchId || "All",
-      "| dept:",
-      department || "All",
-    );
+    console.log("📥 GET /api/batch-students/all | batchId:", batchId || "All");
 
     const coll = getCollection("batch_students");
     if (!coll) {
@@ -6704,13 +6700,27 @@ app.get("/api/batch-students/all", async (req, res) => {
         })
       : allStudents;
 
-    console.log(
-      `✅ ${students.length}/${allStudents.length} batch_students for "${department || "All"}"`,
-    );
+    // ✅ Auto-sync batch.students
+    if (batchId) {
+      try {
+        const batchesData = readBatchesData();
+        const bIdx = (batchesData.batches || []).findIndex(
+          (b) => String(b._id) === String(batchId),
+        );
+        if (bIdx !== -1) {
+          const realCount = await coll.countDocuments({
+            batchId: String(batchId),
+          });
+          if (batchesData.batches[bIdx].students !== realCount) {
+            batchesData.batches[bIdx].students = realCount;
+            writeBatchesData(batchesData);
+          }
+        }
+      } catch (e) {}
+    }
 
     res.status(200).json({
       success: true,
-      department: department || "All",
       total: students.length,
       students,
     });
@@ -6754,16 +6764,42 @@ app.put("/api/batch-students/update/:id", async (req, res) => {
 });
 
 // ✅ DELETE batch student
+// ✅ DELETE batch student + auto-sync batch count
 app.delete("/api/batch-students/delete/:id", async (req, res) => {
   try {
     const { id } = req.params;
     console.log("📥 DELETE /api/batch-students/delete/", id);
 
     const coll = getCollection("batch_students");
-    const result = await coll.deleteOne({ _id: new ObjectId(id) });
+    const student = await coll.findOne({ _id: new ObjectId(id) });
+    if (!student) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
 
+    const result = await coll.deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) {
       return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    // ✅ Auto-sync batch.students count
+    if (student.batchId) {
+      try {
+        const totalInBatch = await coll.countDocuments({
+          batchId: String(student.batchId),
+        });
+        const batchesData = readBatchesData();
+        const bIdx = (batchesData.batches || []).findIndex(
+          (b) => String(b._id) === String(student.batchId),
+        );
+        if (bIdx !== -1) {
+          batchesData.batches[bIdx].students = totalInBatch;
+          batchesData.batches[bIdx].updatedAt = new Date().toISOString();
+          writeBatchesData(batchesData);
+          console.log(`🔄 Synced batch.students = ${totalInBatch}`);
+        }
+      } catch (e) {
+        console.warn("⚠️ Sync failed:", e.message);
+      }
     }
 
     res.status(200).json({ success: true, message: "✅ Deleted!" });
@@ -6774,11 +6810,28 @@ app.delete("/api/batch-students/delete/:id", async (req, res) => {
 });
 
 // ✅ DELETE ALL students of a batch (when deleting batch)
+// ✅ DELETE ALL students of a batch
 app.delete("/api/batch-students/delete-by-batch/:batchId", async (req, res) => {
   try {
     const { batchId } = req.params;
     const coll = getCollection("batch_students");
     const result = await coll.deleteMany({ batchId: String(batchId) });
+
+    // ✅ Sync batch count to 0
+    try {
+      const batchesData = readBatchesData();
+      const bIdx = (batchesData.batches || []).findIndex(
+        (b) => String(b._id) === String(batchId),
+      );
+      if (bIdx !== -1) {
+        batchesData.batches[bIdx].students = 0;
+        batchesData.batches[bIdx].updatedAt = new Date().toISOString();
+        writeBatchesData(batchesData);
+      }
+    } catch (e) {
+      console.warn("⚠️ Sync failed:", e.message);
+    }
+
     res.status(200).json({ success: true, deleted: result.deletedCount });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -7969,6 +8022,7 @@ app.get("/api/student/dashboard-full", async (req, res) => {
 });
 // ✅ CREATE batch student
 // ✅ CREATE batch student — with scholarship + auto due
+// ✅ CREATE batch student — with scholarship + auto due + auto-sync batch count
 app.post("/api/batch-students/create", async (req, res) => {
   try {
     console.log("📥 POST /api/batch-students/create");
@@ -7982,9 +8036,8 @@ app.post("/api/batch-students/create", async (req, res) => {
       country,
       course,
       password,
-      department, // ✅ NEW — department যোগ করা হলো
+      department,
       paymentStatus,
-
       scholarshipAmount,
       scholarshipNote,
       courseFee,
@@ -8008,13 +8061,24 @@ app.post("/api/batch-students/create", async (req, res) => {
       return res.status(500).json({ success: false, message: "DB not found!" });
     }
 
-    // ✅ Auto calculate
+    // ✅ Duplicate check
+    if (studentId && String(studentId).trim()) {
+      const dup = await coll.findOne({
+        studentId: String(studentId).trim(),
+      });
+      if (dup) {
+        return res.status(400).json({
+          success: false,
+          message: `Student ID "${studentId}" ইতিমধ্যে ব্যবহৃত! 🎲 Auto button দিয়ে নতুন ID নিন।`,
+        });
+      }
+    }
+
     const fee = Number(courseFee) || 0;
     const scholarship = Number(scholarshipAmount) || 0;
     const paid = Number(paidAmount) || 0;
     const due = Math.max(fee - scholarship - paid, 0);
 
-    // ✅ Auto status
     let autoStatus = paymentStatus || "Unpaid";
     if (!paymentStatus) {
       if (due === 0 && paid > 0) autoStatus = "Paid";
@@ -8022,7 +8086,6 @@ app.post("/api/batch-students/create", async (req, res) => {
       else autoStatus = "Unpaid";
     }
 
-    // ✅ First payment history entry
     const paidMonths = [];
     if (paid > 0) {
       paidMonths.push({
@@ -8046,9 +8109,8 @@ app.post("/api/batch-students/create", async (req, res) => {
       phone: phone || "",
       country: country || "BD",
       course: course || "",
-      department: department || "", // ✅ NEW — department save
+      department: department || "",
       password: (password && String(password).trim()) || "",
-
       scholarshipAmount: scholarship,
       scholarshipNote: scholarshipNote || "",
       courseFee: fee,
@@ -8060,7 +8122,6 @@ app.post("/api/batch-students/create", async (req, res) => {
       transactionId: transactionId || "",
       notes: notes || "",
       admissionDate: admissionDate || new Date().toISOString(),
-
       status: "Active",
       paidMonths,
       createdAt: new Date(),
@@ -8069,14 +8130,32 @@ app.post("/api/batch-students/create", async (req, res) => {
 
     const result = await coll.insertOne(newStudent);
     console.log("✅ Batch student created:", result.insertedId);
-    console.log(
-      `💰 Fee: ${fee} | Scholarship: ${scholarship} | Paid: ${paid} | Due: ${due} | Dept: ${department || "N/A"} | Pwd: ${password ? "✓" : "✗"}`,
-    );
+
+    // ✅ Auto-sync batch count
+    let batchStudentCount = 1;
+    try {
+      batchStudentCount = await coll.countDocuments({
+        batchId: String(batchId),
+      });
+      const batchesData = readBatchesData();
+      const bIdx = (batchesData.batches || []).findIndex(
+        (b) => String(b._id) === String(batchId),
+      );
+      if (bIdx !== -1) {
+        batchesData.batches[bIdx].students = batchStudentCount;
+        batchesData.batches[bIdx].updatedAt = new Date().toISOString();
+        writeBatchesData(batchesData);
+        console.log(`🔄 Synced batch.students = ${batchStudentCount}`);
+      }
+    } catch (syncErr) {
+      console.warn("⚠️ Sync failed:", syncErr.message);
+    }
 
     res.status(201).json({
       success: true,
-      message: "✅ Student added with auto-calculated due!",
+      message: "✅ Student added successfully!",
       student: { ...newStudent, _id: result.insertedId },
+      batchStudentCount, // ⬅️ এই ফিল্ডটাই "?" এর বদলে number দেখাবে
     });
   } catch (error) {
     console.error("❌ Error:", error);
