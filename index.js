@@ -5301,6 +5301,171 @@ app.get("/api/batches/all", (req, res) => {
   }
 });
 
+// =============================================
+// ✅ FEE RECORDS API — MongoDB Collection (fees)
+// Department-wise fee records (Admin Fee + Monthly Fee)
+// =============================================
+
+// ✅ CREATE fee record
+app.post("/api/fees/create", async (req, res) => {
+  try {
+    const {
+      department,
+      type, // type: "admin" | "monthly"
+      studentName,
+      studentId,
+      class: className,
+      batch,
+      subject,
+      month,
+      year,
+      amount,
+      paidAmount,
+      paymentDate,
+      paymentMethod,
+      transactionId,
+      notes,
+      invoiceNumber,
+      collectedBy,
+    } = req.body;
+
+    if (!department || !studentName || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: "department, studentName, amount আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("fees");
+    if (!coll) {
+      return res.status(500).json({ success: false, message: "DB not found!" });
+    }
+
+    const paid = Number(paidAmount) || 0;
+    const total = Number(amount) || 0;
+    const due = Math.max(total - paid, 0);
+    const status = due <= 0 ? "Paid" : paid > 0 ? "Partial" : "Unpaid";
+
+    const newFee = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      department: String(department).trim(),
+      type: type || "admin",
+      studentName: String(studentName).trim(),
+      studentId: studentId || "",
+      class: className || "",
+      batch: batch || "",
+      subject: subject || "",
+      month: month || "",
+      year: Number(year) || new Date().getFullYear(),
+      amount: total,
+      paidAmount: paid,
+      dueAmount: due,
+      status,
+      paymentDate:
+        paid > 0 ? paymentDate || new Date().toISOString().split("T")[0] : null,
+      paymentMethod: paid > 0 ? paymentMethod || "" : null,
+      transactionId:
+        paid > 0
+          ? transactionId || `TXN${Date.now().toString().slice(-6)}`
+          : null,
+      notes: notes || "",
+      invoiceNumber: invoiceNumber || "",
+      collectedBy: collectedBy || "",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await coll.insertOne(newFee);
+    console.log(`✅ Fee created: ${newFee.studentName} (${department})`);
+
+    res.status(201).json({ success: true, fee: newFee });
+  } catch (error) {
+    console.error("❌ Fee create error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET all fees — department + type filter
+app.get("/api/fees/all", async (req, res) => {
+  try {
+    const { department, type } = req.query;
+    console.log(
+      "📥 GET /api/fees/all | dept:",
+      department || "All",
+      "| type:",
+      type || "All",
+    );
+
+    const coll = getCollection("fees");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const query = {};
+    if (department && department !== "All") query.department = department;
+    if (type) query.type = type;
+
+    const fees = await coll.find(query).sort({ createdAt: -1 }).toArray();
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: fees.length,
+      fees,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE fee
+app.put("/api/fees/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("fees");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+
+    // Auto-recalc due
+    if (
+      updateData.amount !== undefined ||
+      updateData.paidAmount !== undefined
+    ) {
+      const existing = await coll.findOne({ _id: id });
+      const total = Number(updateData.amount ?? existing.amount) || 0;
+      const paid = Number(updateData.paidAmount ?? existing.paidAmount) || 0;
+      const due = Math.max(total - paid, 0);
+      updateData.dueAmount = due;
+      updateData.status = due <= 0 ? "Paid" : paid > 0 ? "Partial" : "Unpaid";
+    }
+
+    const result = await coll.updateOne({ _id: id }, { $set: updateData });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: id });
+    res.status(200).json({ success: true, fee: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE fee
+app.delete("/api/fees/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("fees");
+    const result = await coll.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // GET ALL BATCHES — with department filter
 // =============================================
 // ✅ GET ALL BATCHES — STRICT department filter
@@ -8666,6 +8831,175 @@ app.get("/api/students/by-department/:deptKey", async (req, res) => {
       total: sanitized.length,
       students: sanitized,
     });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ FEE RECORDS API — MongoDB (fees collection)
+// =============================================
+
+// ✅ CREATE
+app.post("/api/fees/create", async (req, res) => {
+  try {
+    const {
+      department,
+      type,
+      studentName,
+      studentId,
+      class: className,
+      batch,
+      subject,
+      month,
+      year,
+      amount,
+      paidAmount,
+      paymentDate,
+      paymentMethod,
+      transactionId,
+      notes,
+      invoiceNumber,
+      collectedBy,
+    } = req.body;
+
+    if (!department || !studentName || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: "department, studentName, amount আবশ্যক!",
+      });
+    }
+
+    const coll = getCollection("fees");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const paid = Number(paidAmount) || 0;
+    const total = Number(amount) || 0;
+    const due = Math.max(total - paid, 0);
+    const status = due <= 0 ? "Paid" : paid > 0 ? "Partial" : "Unpaid";
+
+    const newFee = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      department: String(department).trim(),
+      type: type || "admin",
+      studentName: String(studentName).trim(),
+      studentId: studentId || "",
+      class: className || "",
+      batch: batch || "",
+      subject: subject || "",
+      month: month || "",
+      year: Number(year) || new Date().getFullYear(),
+      amount: total,
+      paidAmount: paid,
+      dueAmount: due,
+      status,
+      paymentDate:
+        paid > 0 ? paymentDate || new Date().toISOString().split("T")[0] : null,
+      paymentMethod: paid > 0 ? paymentMethod || "" : null,
+      transactionId:
+        paid > 0
+          ? transactionId || `TXN${Date.now().toString().slice(-6)}`
+          : null,
+      notes: notes || "",
+      invoiceNumber: invoiceNumber || "",
+      collectedBy: collectedBy || "",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await coll.insertOne(newFee);
+    console.log(
+      `✅ Fee created: ${newFee.studentName} (${department}/${type})`,
+    );
+    res.status(201).json({ success: true, fee: newFee });
+  } catch (error) {
+    console.error("❌ Fee create error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL — department + type filter
+app.get("/api/fees/all", async (req, res) => {
+  try {
+    const { department, type } = req.query;
+    console.log(
+      "📥 GET /api/fees/all | dept:",
+      department || "All",
+      "| type:",
+      type || "All",
+    );
+
+    const coll = getCollection("fees");
+    if (!coll)
+      return res.status(500).json({ success: false, message: "DB not found!" });
+
+    const query = {};
+    if (department && department !== "All") query.department = department;
+    if (type) query.type = type;
+
+    const fees = await coll.find(query).sort({ createdAt: -1 }).toArray();
+    console.log(`✅ Found ${fees.length} fees`);
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      type: type || "All",
+      total: fees.length,
+      fees,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE
+app.put("/api/fees/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("fees");
+    const updateData = { ...req.body, updatedAt: new Date() };
+    delete updateData._id;
+
+    if (
+      updateData.amount !== undefined ||
+      updateData.paidAmount !== undefined
+    ) {
+      const existing = await coll.findOne({ _id: id });
+      if (existing) {
+        const total = Number(updateData.amount ?? existing.amount) || 0;
+        const paid = Number(updateData.paidAmount ?? existing.paidAmount) || 0;
+        const due = Math.max(total - paid, 0);
+        updateData.dueAmount = due;
+        updateData.status = due <= 0 ? "Paid" : paid > 0 ? "Partial" : "Unpaid";
+      }
+    }
+
+    const result = await coll.updateOne({ _id: id }, { $set: updateData });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    const updated = await coll.findOne({ _id: id });
+    res.status(200).json({ success: true, fee: updated });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/fees/delete/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const coll = getCollection("fees");
+    const result = await coll.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    res.status(200).json({ success: true, message: "✅ Deleted!" });
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
