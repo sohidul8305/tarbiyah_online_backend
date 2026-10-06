@@ -62,22 +62,32 @@ function teacherMatchesDepartment(teacher, department) {
 
 function batchMatchesDepartment(batch, department) {
   if (!department || department === "All") return true;
+
   const target = String(department).toLowerCase().trim();
   const bDept = String(batch.department || "")
     .toLowerCase()
     .trim();
-  if (bDept && bDept === target) return true;
-  // Fallback: course match
-  const bCourse = String(batch.course || "")
-    .toLowerCase()
-    .trim();
+
+  // ✅ Priority 1: department field থাকলে — শুধু strict match
+  if (bDept) {
+    return bDept === target; // ← fallback হবে না
+  }
+
+  // ✅ Priority 2: পুরনো batch (department নেই) — তবেই keyword match
   const allowedCourses =
     DEPARTMENT_COURSES[
       Object.keys(DEPARTMENT_COURSES).find((k) => k.toLowerCase() === target)
     ];
-  return allowedCourses
-    ? allowedCourses.some((c) => bCourse.includes(c))
-    : false;
+  if (!allowedCourses) return false;
+
+  const bCourse = String(batch.course || "")
+    .toLowerCase()
+    .trim();
+  const bName = String(batch.name || "")
+    .toLowerCase()
+    .trim();
+  const combined = `${bCourse} ${bName}`;
+  return allowedCourses.some((c) => combined.includes(c));
 }
 
 // =============================================
