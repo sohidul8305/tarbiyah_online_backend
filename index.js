@@ -9803,6 +9803,125 @@ app.delete("/api/crm/delete/:id", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// ✅ CREATE or UPDATE admin profile (UPSERT) — department included
+app.post("/api/admin-profile/save", (req, res) => {
+  try {
+    console.log("📥 POST /api/admin-profile/save");
+    console.log("📝 Body:", req.body);
+
+    const {
+      email,
+      name,
+      phone,
+      designation,
+      department,
+      joinDate,
+      bio,
+      address,
+      website,
+      profileImage,
+    } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email আবশ্যক!" });
+    }
+
+    const lowerEmail = email.toLowerCase().trim();
+    const data = readAdminProfiles();
+
+    const existingIndex = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === lowerEmail,
+    );
+
+    const profileData = {
+      email: lowerEmail,
+      name: name || "",
+      phone: phone || "",
+      designation: designation || "",
+      department: department || "Elders", // ✅ department save
+      joinDate: joinDate || "",
+      bio: bio || "",
+      address: address || "",
+      website: website || "",
+      profileImage: profileImage || "",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (existingIndex !== -1) {
+      data.profiles[existingIndex] = {
+        ...data.profiles[existingIndex],
+        ...profileData,
+      };
+      writeAdminProfiles(data);
+      console.log(
+        `✅ Profile updated: ${lowerEmail} | Dept: ${profileData.department}`,
+      );
+      return res.json({
+        success: true,
+        message: "✅ Profile updated successfully!",
+        profile: data.profiles[existingIndex],
+        updated: true,
+      });
+    }
+
+    const newProfile = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      ...profileData,
+      createdAt: new Date().toISOString(),
+    };
+
+    data.profiles.push(newProfile);
+    writeAdminProfiles(data);
+    console.log(
+      `✅ Profile created: ${lowerEmail} | Dept: ${profileData.department}`,
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Profile created successfully!",
+      profile: newProfile,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ADMIN PROFILE by email
+app.get("/api/admin-profile/:email", (req, res) => {
+  try {
+    const { email } = req.params;
+    const decoded = decodeURIComponent(email).toLowerCase().trim();
+    console.log("📥 GET /api/admin-profile/", decoded);
+
+    const data = readAdminProfiles();
+    const profile = (data.profiles || []).find(
+      (p) => (p.email || "").toLowerCase().trim() === decoded,
+    );
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile not found",
+      });
+    }
+
+    console.log(
+      `✅ Profile found: ${decoded} | Dept: ${profile.department || "N/A"}`,
+    );
+    res.json({
+      success: true,
+      profile: {
+        ...profile,
+        department: profile.department || "Elders", // ✅ ensure department present
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // =============================================
 // ✅ ERROR HANDLER
 // =============================================
