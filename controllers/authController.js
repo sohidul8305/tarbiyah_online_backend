@@ -10,9 +10,6 @@ const generateToken = (id, role) => {
   });
 };
 
-// @desc    Register User
-// @route   POST /api/auth/register
-// @access  Public
 const register = async (req, res, next) => {
   try {
     const { name, email, password, role, phone, address, className, roll } =
