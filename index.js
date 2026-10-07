@@ -26,28 +26,23 @@ app.use(
 // ✅ STRICT DEPARTMENT FILTER (100% reliable)
 // =============================================
 
-// ✅ শুধু এই keyword-গুলো কাজ করবে — কোনো fuzzy match নেই
 const DEPARTMENT_COURSES = {
   Elders: [
     "qaida nuraniyah",
-    "qaida nooraniya",
     "quran nazera",
-    "najera",
     "bakarah hifz",
     "basic tajweed",
     "basic tajweed (level-1)",
-    "quran for elders",
   ],
-  "Quran Studies": ["quran studies", "hifzul quran", "tarbiyah quran studies"],
-  Alimiya: [
-    "alimiya",
-    "dawra e hadith",
-    "tafsir",
-    "fiqh",
-    "hadith",
-    "arabic grammar",
+  "Quran Studies": [
+    "qaida nurani",
+    "nazera quran",
+    "hifzul quran",
+    "hifz revision",
+    "one to one quran revision",
   ],
-  Diploma: ["diploma in islamic studies", "diploma", "certificate"],
+  Alimiya: ["alimiyah for kids", "alimiyah program"],
+  Diploma: ["diploma in islamic studies"],
 };
 
 // ✅ একই রকম filter — batch, teacher, fee-র জন্য
