@@ -1649,6 +1649,7 @@ app.post("/api/batches/create", (req, res) => {
       students: Number(students) || 0,
       schedule: schedule || "",
       teacher: teacher || "",
+      department: department || "",
       videoUrl: videoUrl || "",
       description: description || "",
       status: status || "Active",
@@ -5611,6 +5612,7 @@ app.post("/api/batches/create", (req, res) => {
       schedule: schedule || "",
       teacher: teacher || "",
       videoUrl: videoUrl || "",
+      department: department || "",
       videos: [], // ✅ Multiple videos array
       description: description || "",
       status: status || "Active",
