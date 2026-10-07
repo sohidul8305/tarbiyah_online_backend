@@ -1623,6 +1623,8 @@ app.post("/api/batches/create", (req, res) => {
       videoUrl,
       description,
       status,
+      department, // ⬅️ এই লাইন যোগ করুন
+
       // ✅ LMS fields
       studentsList,
       classesList,
@@ -5586,6 +5588,8 @@ app.post("/api/batches/create", (req, res) => {
       teacher,
       videoUrl,
       description,
+      department, // ⬅️ এই লাইন যোগ করুন
+
       status,
     } = req.body;
 
@@ -10005,6 +10009,55 @@ app.post("/api/admin-profile/save", (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ One-time migration — পুরনো batch-এ department set করে
+app.get("/api/migrate/batch-departments", (req, res) => {
+  try {
+    const data = readBatchesData();
+    let updated = 0;
+
+    (data.batches || []).forEach((b) => {
+      if (b.department && b.department.trim()) return;
+
+      const course = String(b.course || "").toLowerCase();
+      let dept = "";
+
+      if (
+        course.includes("qaida nuraniyah") ||
+        course.includes("quran nazera") ||
+        course.includes("bakarah hifz") ||
+        course.includes("basic tajweed")
+      )
+        dept = "Elders";
+      else if (
+        course.includes("qaida nurani") ||
+        course.includes("nazera quran") ||
+        course.includes("hifzul quran") ||
+        course.includes("hifz revision") ||
+        course.includes("one to one")
+      )
+        dept = "Quran Studies";
+      else if (
+        course.includes("alimiyah for kids") ||
+        course.includes("alimiyah program")
+      )
+        dept = "Alimiya";
+      else if (course.includes("diploma")) dept = "Diploma";
+
+      if (dept) {
+        b.department = dept;
+        b.updatedAt = new Date().toISOString();
+        updated++;
+      }
+    });
+
+    writeBatchesData(data);
+
+    res.json({ success: true, updated, total: (data.batches || []).length });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
