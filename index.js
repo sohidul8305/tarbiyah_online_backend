@@ -1623,13 +1623,7 @@ app.post("/api/batches/create", (req, res) => {
       videoUrl,
       description,
       status,
-      department, // ⬅️ এই লাইন যোগ করুন
-
-      // ✅ LMS fields
-      studentsList,
-      classesList,
-      materialsList,
-      videos,
+      department, // ✅ যোগ করুন
     } = req.body;
 
     if (!name || !course) {
@@ -1646,20 +1640,14 @@ app.post("/api/batches/create", (req, res) => {
       id: Date.now(),
       name: String(name).trim(),
       course: String(course).trim(),
-      students: Number(students) || 0,
+      department: department ? String(department).trim() : "", // ✅ যোগ করুন
+      students: parseInt(students) || 0,
       schedule: schedule || "",
       teacher: teacher || "",
-      department: department || "",
       videoUrl: videoUrl || "",
+      videos: [],
       description: description || "",
       status: status || "Active",
-
-      // ✅ LMS arrays (empty if not provided)
-      studentsList: Array.isArray(studentsList) ? studentsList : [],
-      classesList: Array.isArray(classesList) ? classesList : [],
-      materialsList: Array.isArray(materialsList) ? materialsList : [],
-      videos: Array.isArray(videos) ? videos : [],
-
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1667,7 +1655,7 @@ app.post("/api/batches/create", (req, res) => {
     data.batches.push(newBatch);
     writeBatchesData(data);
 
-    console.log("✅ Batch created:", newBatch._id);
+    console.log("✅ Batch created:", newBatch._id, "| Dept:", department);
 
     res.status(201).json({
       success: true,
