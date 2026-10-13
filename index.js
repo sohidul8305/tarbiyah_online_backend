@@ -6474,6 +6474,209 @@ app.get("/api/admission-report/all", async (req, res) => {
   }
 });
 
+// Student attendence apis
+// =============================================
+// ✅ STUDENT ATTENDANCE — Student এর নিজের attendance
+// Admin এর দেওয়া batch_classes attendance থেকে fetch করে
+// =============================================
+app.get("/api/student/attendance/:identifier", async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { studentId, phone, name } = req.query;
+
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/attendance/", identifier);
+    console.log("   Query:", { studentId, phone, name });
+
+    const bsColl = getCollection("batch_students");
+    if (!bsColl) {
+      return res.status(500).json({ success: false, message: "DB not found" });
+    }
+
+    // ─── STEP 1: Student খুঁজি ───
+    const orConditions = [];
+
+    if (studentId && String(studentId).trim()) {
+      const sid = String(studentId).trim();
+      orConditions.push({ studentId: sid });
+      orConditions.push({ studentId: { $regex: `^${sid}$`, $options: "i" } });
+    }
+    if (phone && String(phone).trim()) {
+      const p = String(phone).trim();
+      orConditions.push({ phone: p });
+      const last11 = p.replace(/\D/g, "").slice(-11);
+      if (last11.length === 11) {
+        orConditions.push({ phone: { $regex: last11 + "$" } });
+      }
+    }
+    if (name && String(name).trim() && name !== "Student") {
+      orConditions.push({
+        name: { $regex: `^${String(name).trim()}$`, $options: "i" },
+      });
+    }
+
+    let student = null;
+    if (orConditions.length > 0) {
+      student = await bsColl.findOne({ $or: orConditions });
+    }
+
+    // identifier দিয়ে fallback
+    if (!student && identifier) {
+      try {
+        student = await bsColl.findOne({ _id: new ObjectId(identifier) });
+      } catch (e) {}
+      if (!student) {
+        student = await bsColl.findOne({
+          studentId: { $regex: `^${identifier}$`, $options: "i" },
+        });
+      }
+    }
+
+    if (!student) {
+      console.log("❌ Student not found");
+      return res
+        .status(404)
+        .json({ success: false, message: "Student not found" });
+    }
+
+    console.log(`✅ Student: ${student.name} | Batch: ${student.batchId}`);
+
+    const batchId = student.batchId;
+
+    // ─── STEP 2: Batch info ───
+    const batchesData = readBatchesData();
+    const batch = (batchesData.batches || []).find(
+      (b) => String(b._id) === String(batchId),
+    );
+
+    // ─── STEP 3: সব classes fetch ───
+    const classesColl = getCollection("batch_classes");
+    const classes = await classesColl
+      .find({ batchId: String(batchId) })
+      .sort({ classDate: 1 })
+      .toArray();
+
+    console.log(`📚 Classes found: ${classes.length}`);
+
+    // ─── STEP 4: Student এর attendance extract করি ───
+    const studentMongoId = student._id.toString();
+    const studentCodeId = String(student.studentId || "").trim();
+    const dayNames = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+
+    const records = [];
+    let totalPresent = 0;
+    let totalAbsent = 0;
+    let totalLate = 0;
+
+    classes.forEach((cls) => {
+      (cls.attendance || []).forEach((att) => {
+        // Student এর status বের করি — multiple key format handle করি
+        let status =
+          att.records?.[studentMongoId] || att.records?.[studentCodeId] || null;
+
+        // যদি still না পাই — সব keys ঘুরে দেখি
+        if (!status && att.records) {
+          for (const [key, val] of Object.entries(att.records)) {
+            if (
+              key === studentMongoId ||
+              key === studentCodeId ||
+              String(key).toLowerCase() === studentCodeId.toLowerCase()
+            ) {
+              status = val;
+              break;
+            }
+          }
+        }
+
+        if (!status) return;
+
+        const dateObj = new Date(att.date);
+        const dayName =
+          cls.day ||
+          (!isNaN(dateObj.getTime()) ? dayNames[dateObj.getDay()] : "");
+
+        records.push({
+          _id: `${cls._id}_${att.date}`,
+          classId: cls._id,
+          className: cls.name || "",
+          classNo: cls.classNo || "",
+          classDate: att.date,
+          day: dayName,
+          time: cls.time || "",
+          type: "Regular Class",
+          status: status.charAt(0).toUpperCase() + status.slice(1),
+          rawStatus: status,
+          markedAt: att.markedAt || "",
+        });
+
+        if (status === "present") totalPresent++;
+        else if (status === "absent") totalAbsent++;
+        else if (status === "late") totalLate++;
+      });
+    });
+
+    // Sort newest first
+    records.sort((a, b) => new Date(b.classDate) - new Date(a.classDate));
+
+    const total = records.length;
+    const percentage =
+      total > 0 ? ((totalPresent / total) * 100).toFixed(2) : "0.00";
+
+    console.log(
+      `🎯 Total: ${total} | Present: ${totalPresent} | Absent: ${totalAbsent} | %: ${percentage}`,
+    );
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      student: {
+        _id: student._id,
+        name: student.name,
+        studentId: student.studentId,
+        course: student.course || "",
+      },
+      batch: batch
+        ? {
+            _id: batch._id,
+            name: batch.name,
+            course: batch.course,
+            code:
+              batch.code ||
+              String(batch.course || "")
+                .substring(0, 8)
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, ""),
+            teacher: batch.teacher || "",
+            schedule: batch.schedule || "",
+            status: batch.status || "Active",
+            section: batch.section || "A",
+            semester: batch.semester || "Fall 2026 (Jul-Dec)",
+            classNo: batch.classNo || "",
+          }
+        : null,
+      records,
+      stats: {
+        totalClass: total,
+        totalPresent,
+        totalAbsent,
+        totalLate,
+        percentage,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // =============================================
 // ✅ GET ALL UNIQUE DEPARTMENTS/COURSES
 // =============================================
@@ -9999,6 +10202,215 @@ app.post("/api/admin-profile/save", (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// =============================================
+// ✅ STUDENT ATTENDANCE — Admin এর দেওয়া attendance Student দেখবে
+// URL: /api/student/attendance/:courseCode?studentId=xxx&phone=xxx&name=xxx
+// =============================================
+app.get("/api/student/attendance/:identifier", async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { studentId, phone, name } = req.query;
+
+    console.log("════════════════════════════════════════");
+    console.log("📥 GET /api/student/attendance/", identifier);
+    console.log("   Query:", { studentId, phone, name });
+
+    const bsColl = getCollection("batch_students");
+    if (!bsColl) {
+      return res.status(500).json({ success: false, message: "DB not found" });
+    }
+
+    // ─── STEP 1: Student খুঁজি query params দিয়ে ───
+    const orConditions = [];
+
+    if (studentId && String(studentId).trim()) {
+      const sid = String(studentId).trim();
+      orConditions.push({ studentId: sid });
+      orConditions.push({ studentId: { $regex: `^${sid}$`, $options: "i" } });
+    }
+    if (phone && String(phone).trim()) {
+      const p = String(phone).trim();
+      orConditions.push({ phone: p });
+      const last11 = p.replace(/\D/g, "").slice(-11);
+      if (last11.length === 11) {
+        orConditions.push({ phone: { $regex: last11 + "$" } });
+      }
+    }
+    if (name && String(name).trim() && name !== "Student") {
+      orConditions.push({
+        name: { $regex: `^${String(name).trim()}$`, $options: "i" },
+      });
+    }
+
+    let student = null;
+    if (orConditions.length > 0) {
+      student = await bsColl.findOne({ $or: orConditions });
+    }
+
+    // Fallback: identifier যদি MongoDB ObjectId হয়
+    if (!student && identifier) {
+      try {
+        student = await bsColl.findOne({ _id: new ObjectId(identifier) });
+      } catch (e) {}
+    }
+
+    if (!student) {
+      console.log("❌ Student not found");
+      return res.status(404).json({
+        success: false,
+        message: "Student not found in batch_students",
+      });
+    }
+
+    console.log(
+      `✅ Student: ${student.name} | BatchId: ${student.batchId} | Course: ${student.course}`,
+    );
+
+    const batchId = student.batchId;
+
+    // ─── STEP 2: Batch info ───
+    const batchesData = readBatchesData();
+    const batch = (batchesData.batches || []).find(
+      (b) => String(b._id) === String(batchId),
+    );
+
+    // ─── STEP 3: সব classes fetch ───
+    const classesColl = getCollection("batch_classes");
+    const classes = await classesColl
+      .find({ batchId: String(batchId) })
+      .sort({ classDate: 1 })
+      .toArray();
+
+    console.log(`📚 Classes found: ${classes.length}`);
+
+    // ─── STEP 4: Student এর attendance extract ───
+    const studentMongoId = student._id.toString();
+    const studentCodeId = String(student.studentId || "").trim();
+    const dayNames = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+
+    const records = [];
+    let totalPresent = 0;
+    let totalAbsent = 0;
+    let totalLate = 0;
+
+    classes.forEach((cls) => {
+      (cls.attendance || []).forEach((att) => {
+        // Multiple key format handle করি
+        let status = null;
+
+        if (att.records) {
+          // Direct match
+          status =
+            att.records[studentMongoId] || att.records[studentCodeId] || null;
+
+          // Case-insensitive / nested search
+          if (!status) {
+            for (const [key, val] of Object.entries(att.records)) {
+              if (
+                String(key) === studentMongoId ||
+                String(key).toLowerCase() === studentCodeId.toLowerCase()
+              ) {
+                status = val;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!status) return;
+
+        const dateObj = new Date(att.date);
+        const dayName =
+          cls.day ||
+          (!isNaN(dateObj.getTime()) ? dayNames[dateObj.getDay()] : "");
+
+        records.push({
+          _id: `${cls._id}_${att.date}`,
+          classId: cls._id,
+          className: cls.name || "",
+          classNo: cls.classNo || "",
+          classDate: att.date,
+          day: dayName,
+          time: cls.time || "",
+          type: "Regular Class",
+          status: status.charAt(0).toUpperCase() + status.slice(1),
+          rawStatus: status,
+          markedAt: att.markedAt || "",
+        });
+
+        if (status === "present") totalPresent++;
+        else if (status === "absent") totalAbsent++;
+        else if (status === "late") totalLate++;
+      });
+    });
+
+    records.sort((a, b) => new Date(b.classDate) - new Date(a.classDate));
+
+    const total = records.length;
+    const percentage =
+      total > 0 ? ((totalPresent / total) * 100).toFixed(2) : "0.00";
+
+    console.log(
+      `🎯 Total: ${total} | Present: ${totalPresent} | Absent: ${totalAbsent} | %: ${percentage}`,
+    );
+    console.log("════════════════════════════════════════");
+
+    res.status(200).json({
+      success: true,
+      student: {
+        _id: student._id,
+        name: student.name,
+        studentId: student.studentId,
+        course: student.course || "",
+      },
+      batch: batch
+        ? {
+            _id: batch._id,
+            name: batch.name,
+            course: batch.course,
+            code:
+              batch.code ||
+              String(batch.course || "")
+                .substring(0, 8)
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, ""),
+            teacher: batch.teacher || "",
+            schedule: batch.schedule || "",
+            status: batch.status || "Active",
+            section: batch.section || "Brother-A",
+            semester: batch.semester || "Fall 2026 (Jul-Dec)",
+            classNo: batch.classNo || "",
+          }
+        : {
+            course: identifier || "Course",
+            name: identifier || "",
+            semester: "Fall 2026 (Jul-Dec)",
+            status: "Open",
+            section: "Brother-A",
+          },
+      records,
+      stats: {
+        totalClass: total,
+        totalPresent,
+        totalAbsent,
+        totalLate,
+        percentage,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Student attendance error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
