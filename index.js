@@ -2275,7 +2275,8 @@ app.post("/api/students/register/student", async (req, res) => {
       paymentStatus: paymentStatus || "Unpaid",
       status: status || "Pending",
       admissionDate: admissionDate || new Date().toISOString(),
-      username: "",
+      username:
+        "pending_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
       roll: "",
       approvedAt: null,
       createdAt: new Date(),
