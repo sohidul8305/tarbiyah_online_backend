@@ -3,8 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-require("dotenv").config();
-// ✅ SSLCommerz Configuration
+require("dotenv").config({ path: require("path").join(__dirname, ".env") }); // ✅ SSLCommerz Configuration
 const STORE_ID = process.env.SSLCOMMERZ_STORE_ID;
 const STORE_PASSWD = process.env.SSLCOMMERZ_STORE_PASSWD;
 const IS_LIVE = process.env.SSLCOMMERZ_IS_LIVE === "true";
