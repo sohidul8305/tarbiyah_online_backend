@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-require("dotenv").config({ path: require("path").join(__dirname, ".env") }); // ✅ SSLCommerz Configuration
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const STORE_ID = process.env.SSLCOMMERZ_STORE_ID;
 const STORE_PASSWD = process.env.SSLCOMMERZ_STORE_PASSWD;
 const IS_LIVE = process.env.SSLCOMMERZ_IS_LIVE === "true";
@@ -9516,6 +9516,46 @@ app.delete("/api/invoices/delete/:id", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// Line ~26 এর কাছাকাছি (app.use(cors(...)) এর পরে)
+
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+  }),
+);
+
+// ✅ ✅ ✅ DEBUG ENDPOINT — এখানে যোগ করুন ✅ ✅ ✅
+app.get("/api/debug/ssl-env", (req, res) => {
+  const rawStoreId = process.env.SSLCOMMERZ_STORE_ID;
+  const rawPasswd = process.env.SSLCOMMERZ_STORE_PASSWD;
+
+  res.json({
+    SSLCOMMERZ_STORE_ID: {
+      value: rawStoreId || "❌ UNDEFINED",
+      length: rawStoreId?.length || 0,
+    },
+    SSLCOMMERZ_STORE_PASSWD: {
+      exists: !!rawPasswd,
+      length: rawPasswd?.length || 0,
+    },
+    SSL_STORE_ID_OLD: process.env.SSL_STORE_ID || "❌ UNDEFINED",
+    SSLCOMMERZ_IS_LIVE: process.env.SSLCOMMERZ_IS_LIVE || "❌ UNDEFINED",
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+    cwd: process.cwd(),
+    __dirname: __dirname,
+    all_SSL_keys: Object.keys(process.env).filter(
+      (k) =>
+        k.toUpperCase().includes("SSL") || k.toUpperCase().includes("STORE"),
+    ),
+  });
+});
+
+// =============================================
+// ✅ DEPARTMENT → KEYWORDS MAPPING
+// =============================================
 // =============================================
 // ✅ 404 HANDLER
 // =============================================
@@ -10490,13 +10530,13 @@ app.get("/api/admin-profile/:email", (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// ✅ DEBUG: SSLCommerz ENV check
+
 // =============================================
 // ✅ ERROR HANDLER
 // =============================================
 app.use(errorHandler);
-
-// ✅ FIX: .env কে index.js এর folder থেকে load করবে
-require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 // ✅ DEBUG log (server start এর সময় দেখা যাবে)
 console.log("════════════════════════════════════════");
