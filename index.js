@@ -4,7 +4,7 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
-// ✅ SSLCommerz Configuration from .env
+// ✅ SSLCommerz Configuration
 const STORE_ID = process.env.SSLCOMMERZ_STORE_ID;
 const STORE_PASSWD = process.env.SSLCOMMERZ_STORE_PASSWD;
 const IS_LIVE = process.env.SSLCOMMERZ_IS_LIVE === "true";
@@ -10408,7 +10408,7 @@ app.get("/api/student/attendance/:identifier", async (req, res) => {
   }
 });
 
-// ✅ One-time migration — পুরনো batch-এ department set করে
+// ✅ One-time migration — পুরনো batch-এ department set
 app.get("/api/migrate/batch-departments", (req, res) => {
   try {
     const data = readBatchesData();
@@ -10496,6 +10496,21 @@ app.get("/api/admin-profile/:email", (req, res) => {
 // =============================================
 app.use(errorHandler);
 
+// ✅ FIX: .env কে index.js এর folder থেকে load করবে
+require("dotenv").config({ path: path.join(__dirname, ".env") });
+
+// ✅ DEBUG log (server start এর সময় দেখা যাবে)
+console.log("════════════════════════════════════════");
+console.log("🔑 ENV Load Check:");
+console.log("   __dirname:", __dirname);
+console.log("   .env exists:", fs.existsSync(path.join(__dirname, ".env")));
+console.log("   STORE_ID:", process.env.SSLCOMMERZ_STORE_ID || "❌ MISSING");
+console.log(
+  "   STORE_PASSWD:",
+  process.env.SSLCOMMERZ_STORE_PASSWD ? "✅ Loaded" : "❌ MISSING",
+);
+console.log("   IS_LIVE:", process.env.SSLCOMMERZ_IS_LIVE || "❌ MISSING");
+console.log("════════════════════════════════════════");
 // =============================================
 // ✅ START SERVER
 // =============================================
@@ -10522,14 +10537,12 @@ const startServer = async () => {
       console.log(`\n`);
     });
   } catch (error) {
-    console.error("❌ Failed to start server:", error.message);
+    console.error("❌ Failed to start server:", error.messagee);
     process.exit(1);
   }
 };
 
 startServer();
-
-// =============================================
 
 // ✅ GRACEFUL SHUTDOWN
 // =============================================
