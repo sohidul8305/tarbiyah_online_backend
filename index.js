@@ -4,8 +4,13 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 require("dotenv").config({ path: require("path").join(__dirname, ".env") });
-const STORE_ID = process.env.SSLCOMMERZ_STORE_ID;
-const STORE_PASSWD = process.env.SSLCOMMERZ_STORE_PASSWD;
+const STORE_ID =
+  process.env.SSLCOMMERZ_STORE_ID || // নতুন নাম
+  process.env.SSL_STORE_ID; // পুরনো নাম (fallback)
+
+const STORE_PASSWD =
+  process.env.SSLCOMMERZ_STORE_PASSWD || // নতুন
+  process.env.SSL_STORE_PASSWD; // পুরনো (fallback)
 const IS_LIVE = process.env.SSLCOMMERZ_IS_LIVE === "true";
 const SSL_BASE =
   process.env.SSLCOMMERZ_BASE_URL || "https://securepay.sslcommerz.com";
