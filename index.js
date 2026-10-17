@@ -40,7 +40,7 @@ const DEPARTMENT_COURSES = {
   Elders: [
     "qaida nuraniyah",
     "quran nazera",
-    "bakarah hifz",
+    "bakarah hifz", // ← "env" মুছে ফেলুন
     "basic tajweed",
     "basic tajweed (level-1)",
   ],
