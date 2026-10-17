@@ -1599,6 +1599,74 @@ app.get("/api/test", (req, res) => {
   });
 });
 
+// =============================================
+// 🧪 TEST / VERSION ENDPOINT
+// কোড server-এ push হয়েছে কিনা যাচাই করার জন্য
+// URL: GET /api/version
+// =============================================
+app.get("/api/version", (req, res) => {
+  const { execSync } = require("child_process");
+
+  let commit = "unknown";
+  let commitMessage = "";
+  let commitDate = "";
+  let branch = "";
+  let gitError = null;
+
+  try {
+    commit = execSync("git rev-parse --short HEAD", {
+      cwd: __dirname,
+      encoding: "utf8",
+    }).trim();
+
+    commitMessage = execSync("git log -1 --pretty=%s", {
+      cwd: __dirname,
+      encoding: "utf8",
+    }).trim();
+
+    commitDate = execSync("git log -1 --pretty=%ci", {
+      cwd: __dirname,
+      encoding: "utf8",
+    }).trim();
+
+    branch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: __dirname,
+      encoding: "utf8",
+    }).trim();
+  } catch (err) {
+    gitError = err.message;
+  }
+
+  res.json({
+    success: true,
+    server: "RUNNING",
+    git: {
+      commit,
+      commitMessage,
+      commitDate,
+      branch,
+      error: gitError,
+    },
+    runtime: {
+      dirname: __dirname,
+      cwd: process.cwd(),
+      nodeVersion: process.version,
+      uptimeSeconds: Math.round(process.uptime()),
+      startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+      now: new Date().toISOString(),
+    },
+    env: {
+      SSLCOMMERZ_STORE_ID: process.env.SSLCOMMERZ_STORE_ID || "❌ MISSING",
+      SSLCOMMERZ_STORE_PASSWD: process.env.SSLCOMMERZ_STORE_PASSWD
+        ? "✅ Loaded"
+        : "❌ MISSING",
+      SSLCOMMERZ_IS_LIVE: process.env.SSLCOMMERZ_IS_LIVE || "❌ MISSING",
+      FRONTEND_URL: process.env.FRONTEND_URL || "❌ MISSING",
+      PORT: process.env.PORT,
+      NODE_ENV: process.env.NODE_ENV,
+    },
+  });
+});
 // ✅ CREATE BATCH — with full LMS fields
 app.post("/api/batches/create", (req, res) => {
   try {
