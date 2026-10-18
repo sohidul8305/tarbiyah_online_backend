@@ -483,6 +483,8 @@ app.post("/api/teacher-profile/save", (req, res) => {
       className,
       joinDate,
       bio,
+      baseSalary, // 👈 এই লাইন দুটি যোগ করুন
+      perClassRate, // 👈
       address,
       profileImage,
       classSchedule,
@@ -572,6 +574,8 @@ app.post("/api/teacher-profile/save", (req, res) => {
       className: className || "",
       joinDate: joinDate || "",
       bio: bio || "",
+      baseSalary: Number(baseSalary) || 0, // 👈 এটি যোগ করুন
+      perClassRate: Number(perClassRate) || 0,
       address: address || "",
       profileImage: profileImage || "",
       classSchedule: incomingSchedule,
@@ -10130,14 +10134,14 @@ app.delete("/api/teacher-profile/by-id/:id", (req, res) => {
   }
 });
 // ✅ GET ALL TEACHERS (ফ্রন্টএন্ডে লিস্ট দেখানোর জন্য)
+// ✅ GET ALL TEACHERS (Simplified)
 app.get("/api/teacher-profiles/all", (req, res) => {
   try {
     const data = readTeacherProfiles();
-    const profiles = data.profiles || [];
     res.json({
       success: true,
-      total: profiles.length,
-      profiles: profiles,
+      total: (data.profiles || []).length,
+      profiles: data.profiles || [],
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -10159,6 +10163,92 @@ app.delete("/api/teacher-profile/by-id/:id", (req, res) => {
     writeTeacherProfiles(data);
     res.json({ success: true, message: "✅ Teacher deleted!" });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ API: Auto Calculate Teacher Salary
+app.get("/api/teacher-salary/calculate/:email", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const { month, year } = req.query; // e.g. month=9 (Oct), year=2023
+
+    // ১. টিচার প্রোফাইল থেকে বেস স্যালারি ও পার-ক্লাস রেট নেওয়া
+    const profilesData = readTeacherProfiles();
+    const teacher = (profilesData.profiles || []).find(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    if (!teacher) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Teacher not found" });
+    }
+
+    // ধরে নিচ্ছি আপনি প্রোফাইলে baseSalary এবং perClassRate সেভ করেছেন
+    const baseSalary = Number(teacher.baseSalary) || 0;
+    const perClassRate = Number(teacher.perClassRate) || 0;
+    const dailyDeduction = baseSalary > 0 ? baseSalary / 30 : 0; // দিনে কত কাটবে
+
+    // ২. টিচার অ্যাটেনডেন্স চেক করা
+    const attData = readAttData();
+    const monthAtt = (attData.attendance || []).filter((a) => {
+      if (
+        String(a.teacherId) !== String(teacher._id) &&
+        String(a.teacherId) !== String(teacher.id)
+      )
+        return false;
+      const d = new Date(a.date);
+      return (
+        d.getMonth() + 1 === Number(month) && d.getFullYear() === Number(year)
+      );
+    });
+
+    const presentDays = monthAtt.filter((a) => a.status === "Present").length;
+    const absentDays = monthAtt.filter((a) => a.status === "Absent").length;
+    const lateDays = monthAtt.filter((a) => a.status === "Late").length;
+
+    // ৩. টিচার কতগুলো ক্লাস নিয়েছে (Routine বা Classes থেকে)
+    // এখানে আমরা রুটিনের ক্লাস কাউন্ট ধরছি (মাসিক ৩০ দিনে কত ক্লাস)
+    const classSchedule = teacher.classSchedule || [];
+    const totalClassesInRoutine = classSchedule.length;
+    const attendedClasses = totalClassesInRoutine * 4; // মাসে ৪ বার ধরা হলো (সাপ্তাহিক ১বার হলে)
+
+    // ৪. ফাইনাল ক্যালকুলেশন
+    // বেস স্যালারি + (ক্লাস রেট × মোট ক্লাস) - (অনুপস্থিতি × ডেইলি ডিডাকশন)
+    const classEarnings = attendedClasses * perClassRate;
+    const attendanceDeduction = absentDays * dailyDeduction;
+
+    const calculatedSalary = Math.max(
+      0,
+      baseSalary + classEarnings - attendanceDeduction,
+    );
+
+    // ৫. আগের পেইড স্যালারি চেক (যদি আগেই দেওয়া হয়ে থাকে)
+    const history = teacher.paymentInfo?.paymentHistory || [];
+    const alreadyPaidThisMonth = history
+      .filter((p) => p.status === "Paid" && p.month === `${year}-${month}`)
+      .reduce((s, p) => s + Number(p.amount || 0), 0);
+
+    const netPayable = Math.max(0, calculatedSalary - alreadyPaidThisMonth);
+
+    res.status(200).json({
+      success: true,
+      teacherName: teacher.name,
+      month: `${year}-${month}`,
+      breakdown: {
+        baseSalary,
+        attendedClasses,
+        classEarnings,
+        absentDays,
+        attendanceDeduction,
+      },
+      calculatedSalary,
+      alreadyPaidThisMonth,
+      netPayable, // অ্যাডমিন এই টাকাটা পেমেন্ট করবে
+    });
+  } catch (error) {
+    console.error("❌ Salary Calc Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
