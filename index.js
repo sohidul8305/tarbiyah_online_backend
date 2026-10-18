@@ -445,23 +445,151 @@ const writeSupportData = (data) => {
 app.get("/api/teacher-profile/:email", (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase().trim();
-    console.log("📥 GET /api/teacher-profile/", email);
-
     const data = readTeacherProfiles();
     const profile = (data.profiles || []).find(
       (p) => (p.email || "").toLowerCase().trim() === email,
     );
+    if (!profile)
+      return res
+        .status(404)
+        .json({ success: false, message: "Profile not found" });
+    res.json({ success: true, profile });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: "Profile not found",
+app.post("/api/teacher-profile/save", (req, res) => {
+  try {
+    console.log("📥 POST /api/teacher-profile/save");
+    const {
+      email,
+      originalEmail,
+      name,
+      phone,
+      designation,
+      department,
+      className,
+      joinDate,
+      bio,
+      address,
+      profileImage,
+      classSchedule,
+      paymentInfo,
+      education,
+      expertise,
+      courses,
+      achievements,
+      totalStudents,
+      totalCourses,
+      rating,
+      baseSalary,
+      perClassRate,
+    } = req.body;
+
+    if (!email || !name)
+      return res
+        .status(400)
+        .json({ success: false, message: "Email and Name are required!" });
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanOriginal = originalEmail
+      ? originalEmail.toLowerCase().trim()
+      : cleanEmail;
+    const data = readTeacherProfiles();
+    if (!data.profiles) data.profiles = [];
+
+    let existingIndex = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === cleanOriginal,
+    );
+    if (existingIndex !== -1 && cleanEmail !== cleanOriginal) {
+      const conflict = data.profiles.findIndex(
+        (p, i) =>
+          i !== existingIndex &&
+          (p.email || "").toLowerCase().trim() === cleanEmail,
+      );
+      if (conflict !== -1)
+        return res.status(400).json({
+          success: false,
+          message: `Email "${cleanEmail}" already in use!`,
+        });
+    }
+    if (existingIndex === -1) {
+      existingIndex = data.profiles.findIndex(
+        (p) => (p.email || "").toLowerCase().trim() === cleanEmail,
+      );
+    }
+
+    const existing = existingIndex !== -1 ? data.profiles[existingIndex] : null;
+    const incomingPaymentInfo =
+      paymentInfo &&
+      typeof paymentInfo === "object" &&
+      paymentInfo.paymentHistory
+        ? paymentInfo
+        : existing?.paymentInfo || {
+            totalSalary: 0,
+            dueSalary: 0,
+            paymentHistory: [],
+          };
+    const incomingSchedule =
+      Array.isArray(classSchedule) && classSchedule.length > 0
+        ? classSchedule
+        : existing?.classSchedule || [];
+
+    const profileData = {
+      email: cleanEmail,
+      name: name.trim(),
+      phone: phone || "",
+      designation: designation || "Teacher",
+      department: department || "",
+      className: className || "",
+      joinDate: joinDate || "",
+      bio: bio || "",
+      address: address || "",
+      profileImage: profileImage || "",
+      baseSalary: Number(baseSalary) || 0,
+      perClassRate: Number(perClassRate) || 0,
+      classSchedule: incomingSchedule,
+      paymentInfo: incomingPaymentInfo,
+      education: Array.isArray(education) ? education : [],
+      expertise: Array.isArray(expertise) ? expertise : [],
+      courses: Array.isArray(courses) ? courses : [],
+      achievements: Array.isArray(achievements) ? achievements : [],
+      totalStudents: totalStudents || "0",
+      totalCourses: totalCourses || "0",
+      rating: rating || "0",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (existingIndex !== -1) {
+      data.profiles[existingIndex] = {
+        ...existing,
+        ...profileData,
+        _id: existing._id,
+        createdAt: existing.createdAt,
+      };
+      writeTeacherProfiles(data);
+      return res.json({
+        success: true,
+        message: "✅ Profile updated!",
+        profile: data.profiles[existingIndex],
       });
     }
 
-    res.json({ success: true, profile });
+    const newProfile = {
+      _id:
+        "teacher_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      ...profileData,
+      createdAt: new Date().toISOString(),
+    };
+    data.profiles.push(newProfile);
+    writeTeacherProfiles(data);
+    res.status(201).json({
+      success: true,
+      message: "✅ Profile created!",
+      profile: newProfile,
+    });
   } catch (error) {
-    console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -575,6 +703,8 @@ app.post("/api/teacher-profile/save", (req, res) => {
       joinDate: joinDate || "",
       bio: bio || "",
       baseSalary: Number(baseSalary) || 0, // 👈 এটি যোগ করুন
+      baseSalary: Number(baseSalary) || 0, // 👈 এটি যোগ করুন
+      perClassRate: Number(perClassRate) || 0, // 👈 এটি যোগ করুন
       perClassRate: Number(perClassRate) || 0,
       address: address || "",
       profileImage: profileImage || "",
@@ -633,53 +763,27 @@ app.post("/api/teacher-profile/save", (req, res) => {
 });
 
 // ✅ ADD class schedule (auto-creates profile if missing)
+
 app.post("/api/teacher-profile/:email/schedule", (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase().trim();
     const { day, subject, class: className, time, room, link } = req.body;
-
-    if (!day || !subject || !className || !time) {
+    if (!day || !subject || !className || !time)
       return res
         .status(400)
-        .json({ success: false, message: "সব ফিল্ড পূরণ করুন!" });
-    }
+        .json({ success: false, message: "All fields required!" });
 
     const data = readTeacherProfiles();
     let idx = data.profiles.findIndex(
       (p) => (p.email || "").toLowerCase().trim() === email,
     );
+    if (idx === -1)
+      return res
+        .status(404)
+        .json({ success: false, message: "Profile not found!" });
 
-    // Auto-create profile if not exists
-    if (idx === -1) {
-      const newProfile = {
-        _id: Date.now().toString() + Math.floor(Math.random() * 1000),
-        email,
-        name: "",
-        phone: "",
-        designation: "Teacher",
-        department: "",
-        joinDate: "",
-        bio: "",
-        address: "",
-        profileImage: "",
-        classSchedule: [],
-        paymentInfo: {
-          totalSalary: 0,
-          dueSalary: 0,
-          paymentHistory: [],
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      data.profiles.push(newProfile);
-      idx = data.profiles.length - 1;
-      console.log("🆕 Auto-created profile:", email);
-    }
-
-    if (!data.profiles[idx].classSchedule) {
+    if (!data.profiles[idx].classSchedule)
       data.profiles[idx].classSchedule = [];
-    }
-
     const newClass = {
       _id: Date.now().toString(),
       day,
@@ -690,15 +794,11 @@ app.post("/api/teacher-profile/:email/schedule", (req, res) => {
       link: link || "",
       createdAt: new Date().toISOString(),
     };
-
     data.profiles[idx].classSchedule.push(newClass);
     data.profiles[idx].updatedAt = new Date().toISOString();
     writeTeacherProfiles(data);
-
-    console.log("✅ Class added:", newClass._id, "for", email);
     res.status(201).json({ success: true, classItem: newClass });
   } catch (error) {
-    console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -707,38 +807,28 @@ app.post("/api/teacher-profile/:email/schedule", (req, res) => {
 app.delete("/api/teacher-profile/:email/schedule/:classId", (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase().trim();
-    const { classId } = req.params;
-
     const data = readTeacherProfiles();
     const idx = data.profiles.findIndex(
       (p) => (p.email || "").toLowerCase().trim() === email,
     );
-
-    if (idx === -1) {
+    if (idx === -1)
       return res
         .status(404)
         .json({ success: false, message: "Profile not found" });
-    }
 
     const before = (data.profiles[idx].classSchedule || []).length;
     data.profiles[idx].classSchedule = (
       data.profiles[idx].classSchedule || []
-    ).filter((c) => c._id !== classId);
-    const after = data.profiles[idx].classSchedule.length;
-
-    if (before === after) {
+    ).filter((c) => c._id !== req.params.classId);
+    if (before === data.profiles[idx].classSchedule.length)
       return res
         .status(404)
         .json({ success: false, message: "Class not found" });
-    }
 
     data.profiles[idx].updatedAt = new Date().toISOString();
     writeTeacherProfiles(data);
-
-    console.log("✅ Class deleted:", classId);
     res.json({ success: true, message: "✅ Class removed" });
   } catch (error) {
-    console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -748,40 +838,25 @@ app.post("/api/teacher-profile/:email/payment", (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase().trim();
     const { month, amount, status, date, method } = req.body;
-
-    if (!month || !amount) {
+    if (!month || !amount)
       return res
         .status(400)
-        .json({ success: false, message: "Month এবং Amount আবশ্যক!" });
-    }
+        .json({ success: false, message: "Month and Amount required!" });
 
     const data = readTeacherProfiles();
     let idx = data.profiles.findIndex(
       (p) => (p.email || "").toLowerCase().trim() === email,
     );
-
-    if (idx === -1) {
-      // auto-create profile
-      data.profiles.push({
-        _id: Date.now().toString() + Math.floor(Math.random() * 1000),
-        email,
-        name: "",
-        designation: "Teacher",
-        classSchedule: [],
-        paymentInfo: { totalSalary: 0, dueSalary: 0, paymentHistory: [] },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      idx = data.profiles.length - 1;
-    }
-
-    if (!data.profiles[idx].paymentInfo) {
+    if (idx === -1)
+      return res
+        .status(404)
+        .json({ success: false, message: "Profile not found!" });
+    if (!data.profiles[idx].paymentInfo)
       data.profiles[idx].paymentInfo = {
         totalSalary: 0,
         dueSalary: 0,
         paymentHistory: [],
       };
-    }
 
     const payment = {
       _id: Date.now().toString(),
@@ -792,24 +867,18 @@ app.post("/api/teacher-profile/:email/payment", (req, res) => {
       method: method || "Cash",
       createdAt: new Date().toISOString(),
     };
-
     data.profiles[idx].paymentInfo.paymentHistory = (
       data.profiles[idx].paymentInfo.paymentHistory || []
     ).concat(payment);
 
-    // Auto recalc total
     const total = data.profiles[idx].paymentInfo.paymentHistory
       .filter((p) => p.status === "Paid")
       .reduce((s, p) => s + Number(p.amount || 0), 0);
     data.profiles[idx].paymentInfo.totalSalary = total;
-
     data.profiles[idx].updatedAt = new Date().toISOString();
     writeTeacherProfiles(data);
-
-    console.log("✅ Payment added:", payment._id, "→", email);
     res.status(201).json({ success: true, payment });
   } catch (error) {
-    console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -9296,25 +9365,19 @@ app.get("/api/student/full-profile", async (req, res) => {
 
 // Teacher dashboard apis
 // ✅ DELETE FULL TEACHER PROFILE
+
 app.delete("/api/teacher-profile/delete/:email", (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase().trim();
     const data = readTeacherProfiles();
-
     const filtered = (data.profiles || []).filter(
       (p) => (p.email || "").toLowerCase().trim() !== email,
     );
-
-    if (filtered.length === data.profiles.length) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Profile not found!" });
-    }
-
+    if (filtered.length === data.profiles.length)
+      return res.status(404).json({ success: false, message: "Not found!" });
     data.profiles = filtered;
     writeTeacherProfiles(data);
-
-    res.json({ success: true, message: "✅ Profile deleted successfully!" });
+    res.json({ success: true, message: "✅ Profile deleted!" });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -10089,27 +10152,23 @@ app.get("/api/teacher-profiles/all", (req, res) => {
   try {
     const data = readTeacherProfiles();
     const profiles = data.profiles || [];
-    console.log(
-      `📥 GET /api/teacher-profiles/all → ${profiles.length} profiles`,
-    );
+    res.json({ success: true, total: profiles.length, profiles: profiles });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
-    res.json({
-      success: true,
-      total: profiles.length,
-      profiles: profiles.map((p) => ({
-        _id: p._id,
-        name: p.name,
-        email: p.email,
-        designation: p.designation,
-        department: p.department,
-        phone: p.phone || "", // 👈 ফোন নাম্বার যুক্ত করা হলো
-        profileImage: p.profileImage || "", // 👈 ছবি যুক্ত করা হলো
-        hasPayment: (p.paymentInfo?.paymentHistory || []).length > 0,
-        classCount: (p.classSchedule || []).length,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt,
-      })),
-    });
+app.delete("/api/teacher-profile/by-id/:id", (req, res) => {
+  try {
+    const data = readTeacherProfiles();
+    const filtered = (data.profiles || []).filter(
+      (p) => p._id !== req.params.id,
+    );
+    if (filtered.length === data.profiles.length)
+      return res.status(404).json({ success: false, message: "Not found!" });
+    data.profiles = filtered;
+    writeTeacherProfiles(data);
+    res.json({ success: true, message: "✅ Teacher deleted!" });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -10171,26 +10230,21 @@ app.delete("/api/teacher-profile/by-id/:id", (req, res) => {
 app.get("/api/teacher-salary/calculate/:email", (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase().trim();
-    const { month, year } = req.query; // e.g. month=9 (Oct), year=2023
-
-    // ১. টিচার প্রোফাইল থেকে বেস স্যালারি ও পার-ক্লাস রেট নেওয়া
+    const { month, year } = req.query;
     const profilesData = readTeacherProfiles();
     const teacher = (profilesData.profiles || []).find(
       (p) => (p.email || "").toLowerCase().trim() === email,
     );
 
-    if (!teacher) {
+    if (!teacher)
       return res
         .status(404)
         .json({ success: false, message: "Teacher not found" });
-    }
 
-    // ধরে নিচ্ছি আপনি প্রোফাইলে baseSalary এবং perClassRate সেভ করেছেন
     const baseSalary = Number(teacher.baseSalary) || 0;
     const perClassRate = Number(teacher.perClassRate) || 0;
-    const dailyDeduction = baseSalary > 0 ? baseSalary / 30 : 0; // দিনে কত কাটবে
+    const dailyDeduction = baseSalary > 0 ? baseSalary / 30 : 0;
 
-    // ২. টিচার অ্যাটেনডেন্স চেক করা
     const attData = readAttData();
     const monthAtt = (attData.attendance || []).filter((a) => {
       if (
@@ -10204,27 +10258,16 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
       );
     });
 
-    const presentDays = monthAtt.filter((a) => a.status === "Present").length;
     const absentDays = monthAtt.filter((a) => a.status === "Absent").length;
-    const lateDays = monthAtt.filter((a) => a.status === "Late").length;
+    const attendedClasses = (teacher.classSchedule || []).length * 4; // Assuming 4 weeks/month
 
-    // ৩. টিচার কতগুলো ক্লাস নিয়েছে (Routine বা Classes থেকে)
-    // এখানে আমরা রুটিনের ক্লাস কাউন্ট ধরছি (মাসিক ৩০ দিনে কত ক্লাস)
-    const classSchedule = teacher.classSchedule || [];
-    const totalClassesInRoutine = classSchedule.length;
-    const attendedClasses = totalClassesInRoutine * 4; // মাসে ৪ বার ধরা হলো (সাপ্তাহিক ১বার হলে)
-
-    // ৪. ফাইনাল ক্যালকুলেশন
-    // বেস স্যালারি + (ক্লাস রেট × মোট ক্লাস) - (অনুপস্থিতি × ডেইলি ডিডাকশন)
     const classEarnings = attendedClasses * perClassRate;
     const attendanceDeduction = absentDays * dailyDeduction;
-
     const calculatedSalary = Math.max(
       0,
       baseSalary + classEarnings - attendanceDeduction,
     );
 
-    // ৫. আগের পেইড স্যালারি চেক (যদি আগেই দেওয়া হয়ে থাকে)
     const history = teacher.paymentInfo?.paymentHistory || [];
     const alreadyPaidThisMonth = history
       .filter((p) => p.status === "Paid" && p.month === `${year}-${month}`)
@@ -10235,7 +10278,6 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
     res.status(200).json({
       success: true,
       teacherName: teacher.name,
-      month: `${year}-${month}`,
       breakdown: {
         baseSalary,
         attendedClasses,
@@ -10245,10 +10287,9 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
       },
       calculatedSalary,
       alreadyPaidThisMonth,
-      netPayable, // অ্যাডমিন এই টাকাটা পেমেন্ট করবে
+      netPayable,
     });
   } catch (error) {
-    console.error("❌ Salary Calc Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -11236,6 +11277,18 @@ app.get("/api/admin-profile/:email", (req, res) => {
 // =============================================
 // ✅ ERROR HANDLER
 // =============================================
+// ... (আপনার বাকি সব রাউটস) ...
+
+// ✅ 404 HANDLER (এটি ফাইলের একদম শেষে থাকতে হবে)
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.url}`,
+  });
+});
+
+// ✅ ERROR HANDLER
+app.use(errorHandler);
 app.use(errorHandler);
 
 // ✅ DEBUG log (server start এর সময় দেখা যাবে)

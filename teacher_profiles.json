@@ -55,6 +55,36 @@
       "rating": "0",
       "updatedAt": "2026-10-18T09:13:12.241Z",
       "createdAt": "2026-10-18T09:13:12.241Z"
+    },
+    {
+      "_id": "teacher_1792321919732_ac5uak",
+      "email": "mamun@gmail.com",
+      "name": "Abdullah al mamun",
+      "phone": "019548732",
+      "designation": "Teacher",
+      "department": "Diploma ",
+      "className": "",
+      "joinDate": "",
+      "bio": "good ",
+      "address": "",
+      "profileImage": "https://i.ibb.co/Ngy1YbB6/Abdullahmanun.jpg",
+      "baseSalary": 0,
+      "perClassRate": 0,
+      "classSchedule": [],
+      "paymentInfo": {
+        "totalSalary": 0,
+        "dueSalary": 0,
+        "paymentHistory": []
+      },
+      "education": [],
+      "expertise": [],
+      "courses": [],
+      "achievements": [],
+      "totalStudents": "0",
+      "totalCourses": "0",
+      "rating": "0",
+      "updatedAt": "2026-10-18T11:11:59.732Z",
+      "createdAt": "2026-10-18T11:11:59.732Z"
     }
   ]
 }
