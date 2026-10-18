@@ -1,3 +1,60 @@
 {
-  "profiles": []
+  "profiles": [
+    {
+      "_id": "teacher_1792314125379_4z5tpa",
+      "email": "alamin@gmail.com",
+      "name": "Alamin hossain",
+      "phone": "01547895487",
+      "designation": "Teacher",
+      "department": "Diploma ",
+      "className": "",
+      "joinDate": "",
+      "bio": "My name is alamin ",
+      "address": "",
+      "profileImage": "https://i.ibb.co/j93rntpg/Alamin.png",
+      "classSchedule": [],
+      "paymentInfo": {
+        "totalSalary": 0,
+        "dueSalary": 0,
+        "paymentHistory": []
+      },
+      "education": [],
+      "expertise": [],
+      "courses": [],
+      "achievements": [],
+      "totalStudents": "0",
+      "totalCourses": "0",
+      "rating": "0",
+      "updatedAt": "2026-10-18T09:02:05.379Z",
+      "createdAt": "2026-10-18T09:02:05.379Z"
+    },
+    {
+      "_id": "teacher_1792314792241_wd3u47",
+      "email": "salman@gmail.com",
+      "name": "Salman hossain",
+      "phone": "01547896542",
+      "designation": "Teacher",
+      "department": "Quran elders ",
+      "className": "",
+      "joinDate": "",
+      "bio": "good ",
+      "address": "",
+      "profileImage": "https://i.ibb.co/1GSLCVDQ/salman.png",
+      "classSchedule": [],
+      "paymentInfo": {
+        "totalSalary": 0,
+        "dueSalary": 0,
+        "paymentHistory": []
+      },
+      "education": [],
+      "expertise": [],
+      "courses": [],
+      "achievements": [],
+      "totalStudents": "0",
+      "totalCourses": "0",
+      "rating": "0",
+      "updatedAt": "2026-10-18T09:13:12.241Z",
+      "createdAt": "2026-10-18T09:13:12.241Z"
+    }
+  ]
 }
