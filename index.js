@@ -11,6 +11,31 @@ const IS_LIVE = process.env.SSLCOMMERZ_IS_LIVE === "true";
 const SSL_BASE = process.env.SSLCOMMERZ_BASE_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
+// =============================================
+// ✅ TEACHER PROFILE — JSON File Based
+// =============================================
+const TEACHER_PROFILES_FILE = path.join(__dirname, "teacher_profiles.json");
+
+if (!fs.existsSync(TEACHER_PROFILES_FILE)) {
+  fs.writeFileSync(
+    TEACHER_PROFILES_FILE,
+    JSON.stringify({ profiles: [] }, null, 2),
+  );
+  console.log("✅ teacher_profiles.json created");
+}
+
+function readTeacherProfiles() {
+  try {
+    return JSON.parse(fs.readFileSync(TEACHER_PROFILES_FILE, "utf8"));
+  } catch {
+    return { profiles: [] };
+  }
+}
+
+function writeTeacherProfiles(data) {
+  fs.writeFileSync(TEACHER_PROFILES_FILE, JSON.stringify(data, null, 2));
+}
+
 if (!STORE_ID || !STORE_PASSWD) {
   console.error("❌ SSLCommerz credentials missing in .env file!");
 }
@@ -415,6 +440,359 @@ const writeSupportData = (data) => {
   fs.writeFileSync(SUPPORT_FILE, JSON.stringify(data, null, 2));
 };
 
+// ✅ GET teacher profile by email
+app.get("/api/teacher-profile/:email", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    console.log("📥 GET /api/teacher-profile/", email);
+
+    const data = readTeacherProfiles();
+    const profile = (data.profiles || []).find(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile not found",
+      });
+    }
+
+    res.json({ success: true, profile });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE or UPDATE teacher profile (UPSERT)
+// ✅ CREATE or UPDATE teacher profile (UPSERT)
+app.post("/api/teacher-profile/save", (req, res) => {
+  try {
+    console.log("📥 POST /api/teacher-profile/save");
+    const {
+      email,
+      originalEmail, // ⬅️ নতুন যোগ করা হয়েছে
+      name,
+      phone,
+      designation,
+      department,
+      className, // ⬅️ নতুন যোগ করা হয়েছে
+      joinDate,
+      bio,
+      address,
+      profileImage,
+      classSchedule,
+      paymentInfo,
+      education,
+      expertise,
+      courses,
+      achievements,
+      totalStudents,
+      totalCourses,
+      rating,
+    } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email আবশ্যক!" });
+    }
+
+    const lowerEmail = email.toLowerCase().trim();
+    const searchEmail = originalEmail
+      ? originalEmail.toLowerCase().trim()
+      : lowerEmail;
+
+    const data = readTeacherProfiles();
+    const existingIndex = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === searchEmail,
+    );
+
+    const profileData = {
+      email: lowerEmail,
+      name: name || "",
+      phone: phone || "",
+      designation: designation || "Teacher",
+      department: department || "",
+      className: className || "",
+      joinDate: joinDate || "",
+      bio: bio || "",
+      address: address || "",
+      profileImage: profileImage || "",
+      classSchedule: Array.isArray(classSchedule) ? classSchedule : [],
+      paymentInfo: paymentInfo || {
+        totalSalary: 0,
+        dueSalary: 0,
+        paymentHistory: [],
+      },
+      // ✅ নতুন ফিল্ডগুলো ডাটাবেজে সেভ হবে
+      education: Array.isArray(education) ? education : [],
+      expertise: Array.isArray(expertise) ? expertise : [],
+      courses: Array.isArray(courses) ? courses : [],
+      achievements: Array.isArray(achievements) ? achievements : [],
+      totalStudents: totalStudents || "0",
+      totalCourses: totalCourses || "0",
+      rating: rating || "0",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (existingIndex !== -1) {
+      data.profiles[existingIndex] = {
+        ...data.profiles[existingIndex],
+        ...profileData,
+        classSchedule:
+          profileData.classSchedule.length > 0
+            ? profileData.classSchedule
+            : data.profiles[existingIndex].classSchedule || [],
+      };
+      writeTeacherProfiles(data);
+      console.log("✅ Profile updated:", lowerEmail);
+      return res.json({
+        success: true,
+        message: "✅ Profile updated successfully!",
+        profile: data.profiles[existingIndex],
+      });
+    }
+
+    const newProfile = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      ...profileData,
+      createdAt: new Date().toISOString(),
+    };
+
+    data.profiles.push(newProfile);
+    writeTeacherProfiles(data);
+    console.log("✅ Profile created:", lowerEmail);
+
+    res.status(201).json({
+      success: true,
+      message: "✅ Profile created successfully!",
+      profile: newProfile,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ ADD class schedule (auto-creates profile if missing)
+app.post("/api/teacher-profile/:email/schedule", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const { day, subject, class: className, time, room, link } = req.body;
+
+    if (!day || !subject || !className || !time) {
+      return res
+        .status(400)
+        .json({ success: false, message: "সব ফিল্ড পূরণ করুন!" });
+    }
+
+    const data = readTeacherProfiles();
+    let idx = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    // Auto-create profile if not exists
+    if (idx === -1) {
+      const newProfile = {
+        _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+        email,
+        name: "",
+        phone: "",
+        designation: "Teacher",
+        department: "",
+        joinDate: "",
+        bio: "",
+        address: "",
+        profileImage: "",
+        classSchedule: [],
+        paymentInfo: {
+          totalSalary: 0,
+          dueSalary: 0,
+          paymentHistory: [],
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      data.profiles.push(newProfile);
+      idx = data.profiles.length - 1;
+      console.log("🆕 Auto-created profile:", email);
+    }
+
+    if (!data.profiles[idx].classSchedule) {
+      data.profiles[idx].classSchedule = [];
+    }
+
+    const newClass = {
+      _id: Date.now().toString(),
+      day,
+      subject,
+      class: className,
+      time,
+      room: room || "",
+      link: link || "",
+      createdAt: new Date().toISOString(),
+    };
+
+    data.profiles[idx].classSchedule.push(newClass);
+    data.profiles[idx].updatedAt = new Date().toISOString();
+    writeTeacherProfiles(data);
+
+    console.log("✅ Class added:", newClass._id, "for", email);
+    res.status(201).json({ success: true, classItem: newClass });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE class schedule
+app.delete("/api/teacher-profile/:email/schedule/:classId", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const { classId } = req.params;
+
+    const data = readTeacherProfiles();
+    const idx = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    if (idx === -1) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Profile not found" });
+    }
+
+    const before = (data.profiles[idx].classSchedule || []).length;
+    data.profiles[idx].classSchedule = (
+      data.profiles[idx].classSchedule || []
+    ).filter((c) => c._id !== classId);
+    const after = data.profiles[idx].classSchedule.length;
+
+    if (before === after) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Class not found" });
+    }
+
+    data.profiles[idx].updatedAt = new Date().toISOString();
+    writeTeacherProfiles(data);
+
+    console.log("✅ Class deleted:", classId);
+    res.json({ success: true, message: "✅ Class removed" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ ADD payment record (admin use)
+app.post("/api/teacher-profile/:email/payment", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const { month, amount, status, date, method } = req.body;
+
+    if (!month || !amount) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Month এবং Amount আবশ্যক!" });
+    }
+
+    const data = readTeacherProfiles();
+    let idx = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    if (idx === -1) {
+      // auto-create profile
+      data.profiles.push({
+        _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+        email,
+        name: "",
+        designation: "Teacher",
+        classSchedule: [],
+        paymentInfo: { totalSalary: 0, dueSalary: 0, paymentHistory: [] },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      idx = data.profiles.length - 1;
+    }
+
+    if (!data.profiles[idx].paymentInfo) {
+      data.profiles[idx].paymentInfo = {
+        totalSalary: 0,
+        dueSalary: 0,
+        paymentHistory: [],
+      };
+    }
+
+    const payment = {
+      _id: Date.now().toString(),
+      month,
+      amount: Number(amount),
+      status: status || "Paid",
+      date: date || new Date().toISOString().split("T")[0],
+      method: method || "Cash",
+      createdAt: new Date().toISOString(),
+    };
+
+    data.profiles[idx].paymentInfo.paymentHistory = (
+      data.profiles[idx].paymentInfo.paymentHistory || []
+    ).concat(payment);
+
+    // Auto recalc total
+    const total = data.profiles[idx].paymentInfo.paymentHistory
+      .filter((p) => p.status === "Paid")
+      .reduce((s, p) => s + Number(p.amount || 0), 0);
+    data.profiles[idx].paymentInfo.totalSalary = total;
+
+    data.profiles[idx].updatedAt = new Date().toISOString();
+    writeTeacherProfiles(data);
+
+    console.log("✅ Payment added:", payment._id, "→", email);
+    res.status(201).json({ success: true, payment });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE payment
+app.delete("/api/teacher-profile/:email/payment/:paymentId", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const { paymentId } = req.params;
+
+    const data = readTeacherProfiles();
+    const idx = data.profiles.findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    if (idx === -1) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Profile not found" });
+    }
+
+    if (data.profiles[idx].paymentInfo?.paymentHistory) {
+      data.profiles[idx].paymentInfo.paymentHistory = data.profiles[
+        idx
+      ].paymentInfo.paymentHistory.filter((p) => p._id !== paymentId);
+
+      const total = data.profiles[idx].paymentInfo.paymentHistory
+        .filter((p) => p.status === "Paid")
+        .reduce((s, p) => s + Number(p.amount || 0), 0);
+      data.profiles[idx].paymentInfo.totalSalary = total;
+    }
+
+    data.profiles[idx].updatedAt = new Date().toISOString();
+    writeTeacherProfiles(data);
+
+    res.json({ success: true, message: "✅ Payment deleted" });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // ✅ Student Submit Support Ticket
 app.post("/api/support/submit", async (req, res) => {
   try {
@@ -8854,6 +9232,32 @@ app.get("/api/student/full-profile", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Full profile error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Teacher dashboard apis
+// ✅ DELETE FULL TEACHER PROFILE
+app.delete("/api/teacher-profile/delete/:email", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const data = readTeacherProfiles();
+
+    const filtered = (data.profiles || []).filter(
+      (p) => (p.email || "").toLowerCase().trim() !== email,
+    );
+
+    if (filtered.length === data.profiles.length) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Profile not found!" });
+    }
+
+    data.profiles = filtered;
+    writeTeacherProfiles(data);
+
+    res.json({ success: true, message: "✅ Profile deleted successfully!" });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
