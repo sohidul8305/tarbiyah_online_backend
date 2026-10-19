@@ -3640,28 +3640,71 @@ app.get("/api/student/campus-data/:studentId", async (req, res) => {
 app.delete("/api/students/delete/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const studentsCollection = getCollection("students");
-    const result = await studentsCollection.deleteOne({
-      _id: new ObjectId(id),
-    });
+    console.log("📥 DELETE /api/students/delete/", id);
 
-    if (result.deletedCount === 0) {
+    // ✅ ৪টি collection-এ try করব
+    const collectionNames = [
+      "students",
+      "batch_students",
+      "basic_tazweed_students",
+      "najera_batch_students",
+    ];
+
+    let deletedFrom = null;
+
+    // ObjectId validation
+    let objectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch (e) {
+      console.log("⚠️ Invalid ObjectId, trying as string ID...");
+    }
+
+    for (const name of collectionNames) {
+      const coll = getCollection(name);
+      if (!coll) continue;
+
+      // ObjectId দিয়ে try
+      if (objectId) {
+        const r = await coll.deleteOne({ _id: objectId });
+        if (r.deletedCount > 0) {
+          deletedFrom = name;
+          break;
+        }
+      }
+
+      // String _id fallback
+      const r2 = await coll.deleteOne({ _id: id });
+      if (r2.deletedCount > 0) {
+        deletedFrom = name;
+        break;
+      }
+
+      // studentId দিয়ে fallback
+      const r3 = await coll.deleteOne({ studentId: id });
+      if (r3.deletedCount > 0) {
+        deletedFrom = name;
+        break;
+      }
+    }
+
+    if (!deletedFrom) {
       return res.status(404).json({
         success: false,
-        message: "Student not found!",
+        message: "Student not found in any collection!",
       });
     }
+
+    console.log(`✅ Deleted from "${deletedFrom}" | ID: ${id}`);
 
     res.status(200).json({
       success: true,
       message: "Student deleted successfully!",
+      deletedFrom,
     });
   } catch (error) {
     console.error("❌ Delete Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
