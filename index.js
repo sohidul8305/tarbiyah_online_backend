@@ -24,6 +24,27 @@ if (!fs.existsSync(TEACHER_PROFILES_FILE)) {
   console.log("✅ teacher_profiles.json created");
 }
 
+const TEACHER_ASSIGN_FILE = path.join(__dirname, "teacher_assignments.json");
+
+if (!fs.existsSync(TEACHER_ASSIGN_FILE)) {
+  fs.writeFileSync(
+    TEACHER_ASSIGN_FILE,
+    JSON.stringify({ assignments: [] }, null, 2),
+  );
+  console.log("✅ teacher_assignments.json created");
+}
+function readTeacherAssignments() {
+  try {
+    return JSON.parse(fs.readFileSync(TEACHER_ASSIGN_FILE, "utf8"));
+  } catch {
+    return { assignments: [] };
+  }
+}
+
+function writeTeacherAssignments(data) {
+  fs.writeFileSync(TEACHER_ASSIGN_FILE, JSON.stringify(data, null, 2));
+}
+
 function readTeacherProfiles() {
   try {
     return JSON.parse(fs.readFileSync(TEACHER_PROFILES_FILE, "utf8"));
@@ -3975,23 +3996,6 @@ app.delete("/api/courses/delete/:id", (req, res) => {
       success: false,
       message: error.message,
     });
-  }
-});
-
-// =============================================
-// ✅ GET ALL TEACHERS (Fixed 2)
-// =============================================
-app.get("/api/teacher-attendance/teachers", (req, res) => {
-  try {
-    console.log("📥 GET /api/teacher-attendance/teachers");
-    res.status(200).json({
-      success: true,
-      total: FIXED_TEACHERS.length,
-      teachers: FIXED_TEACHERS,
-    });
-  } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -11311,6 +11315,249 @@ app.get("/api/admin-profile/:email", (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ CREATE — new assignment
+app.post("/api/teacher-assign/create", (req, res) => {
+  try {
+    const body = req.body;
+    console.log("📥 POST /api/teacher-assign/create");
+    console.log("📝 Body:", body);
+
+    if (!body.teacherName || !body.subject) {
+      return res.status(400).json({
+        success: false,
+        message: "Teacher Name এবং Subject আবশ্যক!",
+      });
+    }
+
+    const data = readTeacherAssignments();
+
+    const newAssignment = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      teacherId: body.teacherId || "T_" + Date.now(),
+      teacherName: String(body.teacherName).trim(),
+      subject: body.subject || "",
+      batch: body.batch || "",
+      days: Array.isArray(body.days) ? body.days : [],
+      time: body.time || "",
+      status: body.status || "Pending",
+      studentsCount: Number(body.studentsCount) || 0,
+      rating: Number(body.rating) || 0,
+      department: body.department || "",
+      assignedDate: new Date().toISOString().split("T")[0],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.assignments.push(newAssignment);
+    writeTeacherAssignments(data);
+
+    console.log("✅ Assignment created:", newAssignment._id);
+    res.status(201).json({
+      success: true,
+      message: "✅ Teacher assigned successfully!",
+      assignment: newAssignment,
+    });
+  } catch (error) {
+    console.error("❌ Assign create error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE — edit assignment
+app.put("/api/teacher-assign/update/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 PUT /api/teacher-assign/update/", id);
+
+    const data = readTeacherAssignments();
+    const index = data.assignments.findIndex((a) => a._id === id);
+
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.assignments[index] = {
+      ...data.assignments[index],
+      ...req.body,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeTeacherAssignments(data);
+    console.log("✅ Assignment updated:", id);
+
+    res.json({ success: true, assignment: data.assignments[index] });
+  } catch (error) {
+    console.error("❌ Assign update error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE — remove assignment
+app.delete("/api/teacher-assign/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📥 DELETE /api/teacher-assign/delete/", id);
+
+    const data = readTeacherAssignments();
+    const filtered = data.assignments.filter((a) => a._id !== id);
+
+    if (filtered.length === data.assignments.length) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.assignments = filtered;
+    writeTeacherAssignments(data);
+    console.log("✅ Assignment deleted:", id);
+
+    res.json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    console.error("❌ Assign delete error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+app.get("/api/teacher-assign/all", (req, res) => {
+  try {
+    const { department } = req.query;
+    const data = readTeacherAssignments();
+    let assignments = data.assignments || [];
+
+    if (department && department !== "All") {
+      const target = String(department).toLowerCase().trim();
+      assignments = assignments.filter(
+        (a) =>
+          String(a.department || "")
+            .toLowerCase()
+            .trim() === target,
+      );
+    }
+
+    assignments.sort(
+      (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+    );
+
+    res.json({ success: true, total: assignments.length, assignments });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+// ✅ CREATE
+app.post("/api/teacher-assign/create", (req, res) => {
+  try {
+    const body = req.body;
+
+    if (!body.teacherName || !body.subject || !body.class) {
+      return res.status(400).json({
+        success: false,
+        message: "Teacher Name, Subject, Class আবশ্যক!",
+      });
+    }
+
+    const data = readTeacherAssignments();
+    const newAssignment = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      teacherId: body.teacherId || "T_" + Date.now(),
+      teacherName: String(body.teacherName).trim(),
+      subject: body.subject || "",
+      class: body.class || "",
+      batch: body.batch || "",
+      days: Array.isArray(body.days) ? body.days : [],
+      time: body.time || "",
+      status: body.status || "Pending",
+      studentsCount: Number(body.studentsCount) || 0,
+      rating: Number(body.rating) || 0,
+      department: body.department || "",
+      assignedDate: new Date().toISOString().split("T")[0],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.assignments.push(newAssignment);
+    writeTeacherAssignments(data);
+
+    console.log("✅ Assignment created:", newAssignment._id);
+    res.status(201).json({
+      success: true,
+      message: "✅ Teacher assigned successfully!",
+      assignment: newAssignment,
+    });
+  } catch (error) {
+    console.error("❌ Assign error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE
+app.put("/api/teacher-assign/update/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readTeacherAssignments();
+    const index = data.assignments.findIndex((a) => a._id === id);
+
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.assignments[index] = {
+      ...data.assignments[index],
+      ...req.body,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeTeacherAssignments(data);
+    res.json({ success: true, assignment: data.assignments[index] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DELETE
+app.delete("/api/teacher-assign/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readTeacherAssignments();
+    const filtered = data.assignments.filter((a) => a._id !== id);
+
+    if (filtered.length === data.assignments.length) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+
+    data.assignments = filtered;
+    writeTeacherAssignments(data);
+    res.json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+app.get("/api/teacher-attendance/teachers", (req, res) => {
+  try {
+    const teachersData = readTeachers();
+    const quickTeachers = (teachersData.teachers || []).map((t) => ({
+      _id: t._id,
+      id: t.id || t._id,
+      teacherId: t.id || t._id,
+      name: t.name,
+      designation: t.designation || "Teacher",
+      subject: t.specialization || t.subject || "",
+      department: t.department || "",
+      phone: t.phone || "",
+      email: t.email || "",
+      status: t.status || "Active",
+    }));
+
+    const allTeachers = [...FIXED_TEACHERS, ...quickTeachers];
+
+    res.status(200).json({
+      success: true,
+      total: allTeachers.length,
+      teachers: allTeachers,
+    });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
