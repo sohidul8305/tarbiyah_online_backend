@@ -10812,33 +10812,139 @@ app.post("/api/income/create", async (req, res) => {
 });
 
 // ✅ GET ALL — with department filter
+// ✅ GET ALL — manual incomes + batch_students এর auto income merge
 app.get("/api/income/all", async (req, res) => {
   try {
     const { department } = req.query;
     console.log("📥 GET /api/income/all | dept:", department || "All");
 
     const coll = getCollection("incomes");
-    if (!coll)
+    if (!coll) {
       return res.status(500).json({ success: false, message: "DB not found!" });
+    }
 
-    const query = {};
-    if (department && department !== "All") query.department = department;
+    // ─── 1️⃣ Manual incomes ───
+    const manualQuery = {};
+    if (department && department !== "All") manualQuery.department = department;
+    const manualIncomes = await coll
+      .find(manualQuery)
+      .sort({ createdAt: -1 })
+      .toArray();
 
-    const incomes = await coll.find(query).sort({ createdAt: -1 }).toArray();
-    console.log(`✅ Found ${incomes.length} income records`);
+    // ─── 2️⃣ Batch students paid → income records ───
+    const bsColl = getCollection("batch_students");
+    let batchStudents = [];
+    if (bsColl) {
+      batchStudents = await bsColl.find({}).toArray();
+    }
+
+    // ─── 3️⃣ Batch map for name/course/dept ───
+    const batchesData = readBatchesData();
+    const batchMap = {};
+    (batchesData.batches || []).forEach((b) => {
+      batchMap[String(b._id)] = b;
+    });
+
+    // ─── 4️⃣ Convert each student's payments to income records ───
+    const batchIncomes = [];
+
+    batchStudents.forEach((s) => {
+      const parentBatch = batchMap[String(s.batchId)] || {};
+      const dept = String(s.department || parentBatch.department || "").trim();
+
+      // Department filter (client passes)
+      if (department && department !== "All") {
+        if (dept.toLowerCase() !== department.toLowerCase().trim()) return;
+      }
+
+      const batchName = parentBatch.name || "Unknown Batch";
+      const courseName = parentBatch.course || s.course || "";
+
+      // Prefer per-month payments (detailed) — else lump-sum
+      if (Array.isArray(s.paidMonths) && s.paidMonths.length > 0) {
+        s.paidMonths.forEach((p) => {
+          const amt = Number(p.amount) || 0;
+          if (amt <= 0) return;
+
+          batchIncomes.push({
+            _id: `batch-income-${s._id}-${p._id || Date.now()}`,
+            source: `${s.name} — ${batchName}`,
+            category: "Student Fee",
+            amount: amt,
+            date: (
+              p.paidAt ||
+              s.admissionDate ||
+              new Date().toISOString()
+            ).split("T")[0],
+            method: p.method || "Cash",
+            status: "Received",
+            description: `${courseName}${p.note ? " — " + p.note : ""}`,
+            receivedBy: "Batch Enrollment (Auto)",
+            transactionId: p._id || s.studentId || "",
+            department: dept,
+            // Batch info
+            isBatchIncome: true,
+            sourceType: "batch_student",
+            batchId: s.batchId,
+            batchName,
+            studentName: s.name,
+            studentId: s.studentId || "",
+          });
+        });
+      } else if (Number(s.paidAmount) > 0) {
+        // Lump-sum fallback (no detailed history)
+        const amt = Number(s.paidAmount) || 0;
+        batchIncomes.push({
+          _id: `batch-income-${s._id}`,
+          source: `${s.name} — ${batchName}`,
+          category: "Student Fee",
+          amount: amt,
+          date: (
+            s.admissionDate ||
+            s.createdAt ||
+            new Date().toISOString()
+          ).split("T")[0],
+          method: s.paymentMethod || "Cash",
+          status: "Received",
+          description: `${courseName} — Initial payment`,
+          receivedBy: "Batch Enrollment (Auto)",
+          transactionId: s.transactionId || s.studentId || "",
+          department: dept,
+          isBatchIncome: true,
+          sourceType: "batch_student",
+          batchId: s.batchId,
+          batchName,
+          studentName: s.name,
+          studentId: s.studentId || "",
+        });
+      }
+    });
+
+    // ─── 5️⃣ Merge + sort by date DESC ───
+    const allIncomes = [...manualIncomes, ...batchIncomes];
+    allIncomes.sort((a, b) => {
+      const da = new Date(b.date || b.createdAt || 0).getTime();
+      const db = new Date(a.date || a.createdAt || 0).getTime();
+      return da - db;
+    });
+
+    console.log(
+      `✅ Total: ${allIncomes.length} | Manual: ${manualIncomes.length} | Batch: ${batchIncomes.length}`,
+    );
 
     res.status(200).json({
       success: true,
       department: department || "All",
-      total: incomes.length,
-      incomes,
+      total: allIncomes.length,
+      manualCount: manualIncomes.length,
+      batchCount: batchIncomes.length,
+      incomes: allIncomes,
     });
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 // ✅ UPDATE
 app.put("/api/income/update/:id", async (req, res) => {
   try {
