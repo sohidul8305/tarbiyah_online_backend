@@ -6886,6 +6886,9 @@ app.get("/api/admin-profiles/all", (req, res) => {
 // =============================================
 // ✅ ADMISSION REPORT — With Department Filter
 // =============================================
+// =============================================
+// ✅ ADMISSION REPORT — students + batch_students (merged)
+// =============================================
 app.get("/api/admission-report/all", async (req, res) => {
   try {
     const { department } = req.query;
@@ -6895,36 +6898,36 @@ app.get("/api/admission-report/all", async (req, res) => {
     );
 
     const studentsCollection = getCollection("students");
+    const batchStudentsCollection = getCollection("batch_students");
+
     if (!studentsCollection) {
       return res.status(500).json({ success: false, message: "DB not found!" });
     }
 
+    // ─── 1️⃣ Fetch students collection ───
     let students = await studentsCollection
       .find({})
       .sort({ createdAt: -1 })
       .toArray();
 
-    // ✅ Filter by department (if provided)
-    if (department && department !== "All") {
-      const search = department.toLowerCase().trim();
-      students = students.filter((s) => {
-        const sDept = (s.department || "").toLowerCase();
-        const sCourse = String(s.course || "").toLowerCase();
-        const sBatch = (s.batch || "").toLowerCase();
-        // Match department field OR course names OR batch
-        return (
-          sDept === search ||
-          sCourse.includes(search) ||
-          sBatch.includes(search) ||
-          sCourse.split(",").some((c) => c.trim() === search)
-        );
-      });
-      console.log(
-        `🎯 Filtered to ${students.length} students for "${department}"`,
-      );
+    // ─── 2️⃣ Fetch batch_students collection ───
+    let batchStudents = [];
+    if (batchStudentsCollection) {
+      batchStudents = await batchStudentsCollection
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
     }
 
-    const records = students.map((s) => {
+    // ─── 3️⃣ Batch map (batchId → batch info) ───
+    const batchesData = readBatchesData();
+    const batchMap = {};
+    (batchesData.batches || []).forEach((b) => {
+      batchMap[String(b._id)] = b;
+    });
+
+    // ─── 4️⃣ Map students collection ───
+    const studentRecords = students.map((s) => {
       const rawStatus = s.status || "Pending";
       let uiStatus = "Pending";
       if (rawStatus === "Active") uiStatus = "Approved";
@@ -6940,6 +6943,7 @@ app.get("/api/admission-report/all", async (req, res) => {
       return {
         id: s._id.toString(),
         _id: s._id.toString(),
+        _source: "students", // ⬅️ NEW
         studentName: s.name || "Unknown",
         studentId:
           s.studentId ||
@@ -6965,6 +6969,66 @@ app.get("/api/admission-report/all", async (req, res) => {
       };
     });
 
+    // ─── 5️⃣ Map batch_students collection ───
+    const batchStudentRecords = batchStudents.map((s) => {
+      const parentBatch = batchMap[String(s.batchId)] || {};
+      const admissionDate = s.admissionDate
+        ? new Date(s.admissionDate).toISOString().split("T")[0]
+        : s.createdAt
+          ? new Date(s.createdAt).toISOString().split("T")[0]
+          : "";
+
+      return {
+        id: s._id.toString(),
+        _id: s._id.toString(),
+        _source: "batch_students", // ⬅️ NEW
+        studentName: s.name || "Unknown",
+        studentId: s.studentId || s._id.toString().slice(-6).toUpperCase(),
+        class: parentBatch.name || "N/A",
+        course: s.course || parentBatch.course || "",
+        department: s.department || parentBatch.department || "",
+        batch: parentBatch.name || "",
+        subject: s.course || parentBatch.course || "General",
+        applicationDate: admissionDate,
+        status: "Approved", // batch_students সবসময় active
+        rawStatus: "Active",
+        parentName: "",
+        parentPhone: s.phone || "",
+        email: "",
+        address: "",
+        previousSchool: "",
+        notes: s.notes || "",
+        gender: "N/A",
+        country: s.country || "BD",
+      };
+    });
+
+    // ─── 6️⃣ Merge ───
+    let records = [...studentRecords, ...batchStudentRecords];
+
+    // ─── 7️⃣ Department filter ───
+    if (department && department !== "All") {
+      const search = department.toLowerCase().trim();
+      records = records.filter((r) => {
+        const rDept = (r.department || "").toLowerCase();
+        const rCourse = (r.course || "").toLowerCase();
+        const rBatch = (r.batch || "").toLowerCase();
+        return (
+          rDept === search ||
+          rCourse.includes(search) ||
+          rBatch.includes(search) ||
+          rCourse.split(",").some((c) => c.trim() === search)
+        );
+      });
+    }
+
+    // ─── 8️⃣ Sort by admission date DESC ───
+    records.sort(
+      (a, b) =>
+        new Date(b.applicationDate || 0) - new Date(a.applicationDate || 0),
+    );
+
+    // ─── 9️⃣ Stats ───
     const total = records.length;
     const approved = records.filter((r) => r.status === "Approved").length;
     const pending = records.filter((r) => r.status === "Pending").length;
@@ -7056,6 +7120,10 @@ app.get("/api/admission-report/all", async (req, res) => {
       });
     });
 
+    console.log(
+      `✅ Total: ${records.length} (students: ${studentRecords.length}, batch_students: ${batchStudentRecords.length})`,
+    );
+
     res.status(200).json({
       success: true,
       department: department || "All",
@@ -7085,7 +7153,6 @@ app.get("/api/admission-report/all", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 // Student attendence apis
 // =============================================
 // ✅ STUDENT ATTENDANCE — Student এর নিজের attendance
