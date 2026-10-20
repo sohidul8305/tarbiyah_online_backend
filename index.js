@@ -11509,12 +11509,247 @@ app.get("/api/teacher-attendance/teachers", (req, res) => {
   }
 });
 
-// ✅ DEBUG: SSLCommerz ENV check
+// ═══════════════════════════════════════════════════════════
+// ✅ DEPARTMENT TEACHERS + TEACHER SCHEDULE — JSON File Based
+// ═══════════════════════════════════════════════════════════
+const TEACHER_SCHEDULE_FILE = path.join(__dirname, "teacher_schedule.json");
+if (!fs.existsSync(TEACHER_SCHEDULE_FILE)) {
+  fs.writeFileSync(
+    TEACHER_SCHEDULE_FILE,
+    JSON.stringify({ schedules: [], teachers: [] }, null, 2),
+  );
+  console.log("✅ teacher_schedule.json created");
+}
 
-// =============================================
-// ✅ ERROR HANDLER
-// =============================================
-// ... (আপনার বাকি সব রাউটস) ...
+function readTeacherScheduleData() {
+  try {
+    return JSON.parse(fs.readFileSync(TEACHER_SCHEDULE_FILE, "utf8"));
+  } catch {
+    return { schedules: [], teachers: [] };
+  }
+}
+
+function writeTeacherScheduleData(data) {
+  fs.writeFileSync(TEACHER_SCHEDULE_FILE, JSON.stringify(data, null, 2));
+}
+
+// ── TEACHERS ──
+app.get("/api/dept-teachers/all", (req, res) => {
+  try {
+    const { department } = req.query;
+    const data = readTeacherScheduleData();
+    let teachers = data.teachers || [];
+    if (department && department !== "All") {
+      const target = String(department).toLowerCase().trim();
+      teachers = teachers.filter(
+        (t) =>
+          String(t.department || "")
+            .toLowerCase()
+            .trim() === target,
+      );
+    }
+    res.json({ success: true, total: teachers.length, teachers });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post("/api/dept-teachers/create", (req, res) => {
+  try {
+    console.log("📥 POST /api/dept-teachers/create");
+    console.log("📝 Body:", req.body);
+
+    const { name, shortName, designation, department, color } = req.body;
+    if (!name || !department) {
+      return res.status(400).json({
+        success: false,
+        message: "Teacher Name এবং Department আবশ্যক!",
+      });
+    }
+    const data = readTeacherScheduleData();
+    if (!data.teachers) data.teachers = [];
+
+    const dup = data.teachers.find(
+      (t) =>
+        (t.name || "").toLowerCase().trim() ===
+          String(name).toLowerCase().trim() &&
+        String(t.department || "")
+          .toLowerCase()
+          .trim() === String(department).toLowerCase().trim(),
+    );
+    if (dup) {
+      return res.json({
+        success: true,
+        alreadyExists: true,
+        teacher: dup,
+      });
+    }
+
+    const colors = ["blue", "pink", "green", "purple", "orange"];
+    const newTeacher = {
+      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      name: String(name).trim(),
+      shortName: (shortName || name).trim(),
+      designation: designation || "Teacher",
+      department: String(department).trim(),
+      color: color || colors[Math.floor(Math.random() * colors.length)],
+      status: "Active",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    data.teachers.push(newTeacher);
+    writeTeacherScheduleData(data);
+    console.log("✅ Teacher added:", newTeacher._id, newTeacher.name);
+    res.status(201).json({
+      success: true,
+      message: "✅ Teacher added!",
+      teacher: newTeacher,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete("/api/dept-teachers/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readTeacherScheduleData();
+    const before = (data.teachers || []).length;
+    data.teachers = (data.teachers || []).filter((t) => t._id !== id);
+    if (data.teachers.length === before) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    data.schedules = (data.schedules || []).filter((s) => s.teacherId !== id);
+    writeTeacherScheduleData(data);
+    res.json({ success: true, message: "✅ Teacher deleted!" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ── SCHEDULES ──
+app.get("/api/teacher-schedule/all", (req, res) => {
+  try {
+    const { department } = req.query;
+    const data = readTeacherScheduleData();
+    let schedules = data.schedules || [];
+    if (department && department !== "All") {
+      const target = String(department).toLowerCase().trim();
+      schedules = schedules.filter(
+        (s) =>
+          String(s.department || "")
+            .toLowerCase()
+            .trim() === target,
+      );
+    }
+    schedules.sort(
+      (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+    );
+    res.json({ success: true, total: schedules.length, schedules });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post("/api/teacher-schedule/bulk-create", (req, res) => {
+  try {
+    console.log("📥 POST /api/teacher-schedule/bulk-create");
+    console.log("📝 Body:", req.body);
+
+    const {
+      department,
+      teacherId,
+      teacherName,
+      subject,
+      batch,
+      days,
+      time,
+      status,
+    } = req.body;
+
+    if (!teacherName || !Array.isArray(days) || days.length === 0 || !time) {
+      return res.status(400).json({
+        success: false,
+        message: "Teacher Name, Time, এবং কমপক্ষে ১টি Day আবশ্যক!",
+      });
+    }
+
+    const data = readTeacherScheduleData();
+    if (!data.schedules) data.schedules = [];
+
+    const created = [];
+    days.forEach((day) => {
+      const newSchedule = {
+        _id:
+          Date.now().toString() +
+          Math.floor(Math.random() * 1000) +
+          Math.floor(Math.random() * 100),
+        department: department || "",
+        teacherId: teacherId || "",
+        teacherName: String(teacherName).trim(),
+        subject: subject || "",
+        batch: batch || "",
+        day: String(day).trim(),
+        time: String(time).trim(),
+        status: status || "Active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      data.schedules.push(newSchedule);
+      created.push(newSchedule);
+    });
+
+    writeTeacherScheduleData(data);
+    console.log("✅ Created", created.length, "schedules");
+    res.status(201).json({
+      success: true,
+      message: `✅ ${created.length} class${created.length > 1 ? "es" : ""} added!`,
+      schedules: created,
+    });
+  } catch (error) {
+    console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.put("/api/teacher-schedule/update/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readTeacherScheduleData();
+    const index = (data.schedules || []).findIndex((s) => s._id === id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    data.schedules[index] = {
+      ...data.schedules[index],
+      ...req.body,
+      _id: id,
+      updatedAt: new Date().toISOString(),
+    };
+    writeTeacherScheduleData(data);
+    res.json({ success: true, schedule: data.schedules[index] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete("/api/teacher-schedule/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readTeacherScheduleData();
+    const before = (data.schedules || []).length;
+    data.schedules = (data.schedules || []).filter((s) => s._id !== id);
+    if (data.schedules.length === before) {
+      return res.status(404).json({ success: false, message: "Not found!" });
+    }
+    writeTeacherScheduleData(data);
+    res.json({ success: true, message: "✅ Deleted!" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+// ═══════════════════════════════════════════════════════════
 
 // ✅ 404 HANDLER (এটি ফাইলের একদম শেষে থাকতে হবে)
 app.use((req, res) => {
