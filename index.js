@@ -11788,7 +11788,7 @@ const startServer = async () => {
       console.log(`📍 API URL: http://localhost:${PORT}`);
       console.log(`🧪 Test: http://localhost:${PORT}/api/test`);
       console.log(`\n📚 Student Routes (No Auth Required):`);
-      console.log(`   GET  http://localhost:${PORT}/api/students/all`);
+
       console.log(`   PUT  http://localhost:${PORT}/api/students/approve/:id`);
       console.log(`   POST http://localhost:${PORT}/api/students/login`);
       console.log(
