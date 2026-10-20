@@ -10345,14 +10345,6 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
 // ✅ DEPARTMENT → KEYWORDS MAPPING
 // =============================================
 // =============================================
-// ✅ 404 HANDLER
-// =============================================
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route not found: ${req.method} ${req.url}`,
-  });
-});
 
 // =============================================
 // ✅ REPORT API — MongoDB (reports collection)
@@ -11442,51 +11434,6 @@ app.get("/api/teacher-assign/all", (req, res) => {
 
     res.json({ success: true, total: assignments.length, assignments });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-// ✅ CREATE
-app.post("/api/teacher-assign/create", (req, res) => {
-  try {
-    const body = req.body;
-
-    if (!body.teacherName || !body.subject || !body.class) {
-      return res.status(400).json({
-        success: false,
-        message: "Teacher Name, Subject, Class আবশ্যক!",
-      });
-    }
-
-    const data = readTeacherAssignments();
-    const newAssignment = {
-      _id: Date.now().toString() + Math.floor(Math.random() * 1000),
-      teacherId: body.teacherId || "T_" + Date.now(),
-      teacherName: String(body.teacherName).trim(),
-      subject: body.subject || "",
-      class: body.class || "",
-      batch: body.batch || "",
-      days: Array.isArray(body.days) ? body.days : [],
-      time: body.time || "",
-      status: body.status || "Pending",
-      studentsCount: Number(body.studentsCount) || 0,
-      rating: Number(body.rating) || 0,
-      department: body.department || "",
-      assignedDate: new Date().toISOString().split("T")[0],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    data.assignments.push(newAssignment);
-    writeTeacherAssignments(data);
-
-    console.log("✅ Assignment created:", newAssignment._id);
-    res.status(201).json({
-      success: true,
-      message: "✅ Teacher assigned successfully!",
-      assignment: newAssignment,
-    });
-  } catch (error) {
-    console.error("❌ Assign error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
