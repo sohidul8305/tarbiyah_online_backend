@@ -2776,6 +2776,10 @@ app.post("/api/students/register/student", async (req, res) => {
       paymentStatus,
       status = "Pending",
       admissionDate,
+      batchType,
+      batchSchedule,
+      studentImage,
+      department,
     } = req.body;
 
     if (!name || !email || !phone || !password || !course) {
@@ -6998,6 +7002,9 @@ app.get("/api/admission-report/all", async (req, res) => {
         notes: s.comments || "",
         gender: s.gender || "N/A",
         country: s.country || "BD",
+        batchType: s.batchType || "",
+        batchSchedule: s.batchSchedule || "",
+        studentImage: s.studentImage || "",
       };
     });
 
