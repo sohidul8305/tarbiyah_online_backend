@@ -2883,8 +2883,8 @@ app.post("/api/students/register/student", async (req, res) => {
       phone,
       password,
       course,
-      enrolledCourses: enrolledIds, // ⬅️ এখানে save হবে
-      department: req.body.department || "",
+      enrolledCourses: enrolledIds,
+      department: department || "",
       presentAddress: presentAddress || "",
       permanentAddress: permanentAddress || "",
       dobOrNid: dobOrNid || "",
@@ -2902,6 +2902,12 @@ app.post("/api/students/register/student", async (req, res) => {
       paidAmount: paidAmount || "",
       paymentRemarks: paymentRemarks || "",
       paymentStatus: paymentStatus || "Unpaid",
+
+      // ✅ এই ৩টি নতুন ফিল্ড অবশ্যই যোগ করুন
+      batchType: batchType || "",
+      batchSchedule: batchSchedule || "",
+      paymentScreenshot: paymentScreenshot || "",
+
       status: status || "Pending",
       admissionDate: admissionDate || new Date().toISOString(),
       username:
@@ -6963,6 +6969,8 @@ app.get("/api/admission-report/all", async (req, res) => {
     });
 
     // ─── 4️⃣ Map students collection ───
+    // ─── 4️⃣ Map students collection — ALL FIELDS ───
+    // ─── 4️⃣ Map students collection ───
     const studentRecords = students.map((s) => {
       const rawStatus = s.status || "Pending";
       let uiStatus = "Pending";
@@ -6979,7 +6987,9 @@ app.get("/api/admission-report/all", async (req, res) => {
       return {
         id: s._id.toString(),
         _id: s._id.toString(),
-        _source: "students", // ⬅️ NEW
+        _source: "students",
+
+        // ===== Basic =====
         studentName: s.name || "Unknown",
         studentId:
           s.studentId ||
@@ -6994,20 +7004,49 @@ app.get("/api/admission-report/all", async (req, res) => {
         applicationDate: admissionDate,
         status: uiStatus,
         rawStatus: rawStatus,
+
+        // ===== Personal Info (সব ফিল্ড) =====
+        fatherName: s.fatherName || "",
+        motherName: s.motherName || "",
+        guardianName: s.guardianName || s.fatherName || "",
         parentName: s.guardianName || s.fatherName || "",
-        parentPhone: s.guardianPhone || s.phone || "",
+        gender: s.gender || "",
+        age: s.age || "",
+        dobOrNid: s.dobOrNid || s.nationalId || "",
+        dateOfBirth: s.dateOfBirth || "",
+        occupation: s.occupation || "",
+        maritalStatus: s.maritalStatus || "",
+
+        // ===== Contact (সব ফিল্ড) =====
         email: s.email || "",
+        phone: s.phone || "",
+        parentPhone: s.guardianPhone || s.phone || "",
+        guardianPhone: s.guardianPhone || "",
         address: s.presentAddress || s.address || "",
-        previousSchool: s.previousSchool || "",
-        notes: s.comments || "",
-        gender: s.gender || "N/A",
+        presentAddress: s.presentAddress || s.address || "",
+        permanentAddress: s.permanentAddress || "",
         country: s.country || "BD",
+
+        // ===== Batch Info =====
         batchType: s.batchType || "",
         batchSchedule: s.batchSchedule || "",
-        studentImage: s.studentImage || "",
+
+        // ===== Payment (সব ফিল্ড) =====
+        paymentMethod: s.paymentMethod || "",
+        paymentType: s.paymentType || "",
+        transactionId: s.transactionId || "",
+        paidAmount: s.paidAmount || 0,
+        dueAmount: s.dueAmount || 0,
+        courseFee: s.courseFee || 0,
+        scholarshipAmount: s.scholarshipAmount || 0,
+        paymentStatus: s.paymentStatus || "Unpaid",
+        paymentRemarks: s.paymentRemarks || "",
+        paymentScreenshot: s.paymentScreenshot || "", // ✅ Payment Screenshot
+
+        // ===== Notes =====
+        notes: s.comments || s.notes || "",
       };
     });
-
     // ─── 5️⃣ Map batch_students collection ───
     const batchStudentRecords = batchStudents.map((s) => {
       const parentBatch = batchMap[String(s.batchId)] || {};
