@@ -23,7 +23,39 @@ if (!fs.existsSync(TEACHER_PROFILES_FILE)) {
   );
   console.log("✅ teacher_profiles.json created");
 }
+// =============================================
+// ✅ TEACHER KPI CONFIG
+// =============================================
+const DEFAULT_KPI_CONFIG = {
+  studentProgress: 30, // শিক্ষার্থীর অগ্রগতি
+  classQuality: 25, // শিক্ষাদানের গুণমান
+  attendance: 20, // উপস্থিতি
+  punctuality: 15, // সময়ানুবর্তিতা
+  professionalDev: 10, // পেশাগত উন্নয়ন
+};
 
+// Weighted KPI Score calculate করে
+function calculateKpiScore(scores, config = DEFAULT_KPI_CONFIG) {
+  let totalWeight = 0;
+  let weightedSum = 0;
+  const breakdown = {};
+
+  Object.keys(config).forEach((key) => {
+    const weight = Number(config[key]) || 0;
+    const score = Number(scores[key]) || 0;
+    totalWeight += weight;
+    weightedSum += weight * score;
+    breakdown[key] = {
+      weight,
+      score,
+      contribution:
+        totalWeight > 0 ? Math.round(((weight * score) / 100) * 100) / 100 : 0,
+    };
+  });
+
+  const kpiScore = totalWeight > 0 ? weightedSum / totalWeight : 0;
+  return { kpiScore: Math.round(kpiScore * 100) / 100, breakdown };
+}
 const TEACHER_ASSIGN_FILE = path.join(__dirname, "teacher_assignments.json");
 
 if (!fs.existsSync(TEACHER_ASSIGN_FILE)) {
@@ -10340,7 +10372,101 @@ app.delete("/api/teacher-profile/by-id/:id", (req, res) => {
   }
 });
 
+// ✅ SET KPI Scores (Admin)
+app.post("/api/teacher-kpi/set-scores/:email", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const { month, scores, notes } = req.body;
+    // month format: "2026-10"
+
+    if (!month || !scores) {
+      return res.status(400).json({
+        success: false,
+        message: "month (YYYY-MM) এবং scores আবশ্যক!",
+      });
+    }
+
+    const data = readTeacherProfiles();
+    const idx = (data.profiles || []).findIndex(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    if (idx === -1) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Teacher not found!" });
+    }
+
+    const teacher = data.profiles[idx];
+    const config = teacher.kpiConfig || DEFAULT_KPI_CONFIG;
+
+    // Calculate weighted score + breakdown
+    const { kpiScore, breakdown } = calculateKpiScore(scores, config);
+
+    // Save (একই মাসের পুরানো score replace)
+    if (!teacher.kpiScores) teacher.kpiScores = [];
+    teacher.kpiScores = teacher.kpiScores.filter((s) => s.month !== month);
+    teacher.kpiScores.push({
+      _id: "kpi_" + Date.now(),
+      month,
+      scores: { ...scores },
+      kpiScore,
+      breakdown,
+      notes: notes || "",
+      createdAt: new Date().toISOString(),
+    });
+
+    data.profiles[idx] = teacher;
+    writeTeacherProfiles(data);
+
+    console.log(`✅ KPI saved: ${email} | ${month} | Score: ${kpiScore}%`);
+
+    res.json({
+      success: true,
+      message: `✅ KPI scores saved! Total score: ${kpiScore}%`,
+      kpiScore,
+      breakdown,
+    });
+  } catch (error) {
+    console.error("❌ KPI save error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET KPI Scores
+app.get("/api/teacher-kpi/scores/:email", (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+    const { month } = req.query;
+
+    const data = readTeacherProfiles();
+    const teacher = (data.profiles || []).find(
+      (p) => (p.email || "").toLowerCase().trim() === email,
+    );
+
+    if (!teacher) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Teacher not found!" });
+    }
+
+    let scores = teacher.kpiScores || [];
+    if (month) scores = scores.filter((s) => s.month === month);
+    scores.sort((a, b) => b.month.localeCompare(a.month));
+
+    res.json({
+      success: true,
+      config: teacher.kpiConfig || DEFAULT_KPI_CONFIG,
+      bonusPool: Number(teacher.bonusPool) || 0,
+      totalRecords: scores.length,
+      scores,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // ✅ API: Auto Calculate Teacher Salary
+// ✅ API: Auto Calculate Teacher Salary (with KPI)
 app.get("/api/teacher-salary/calculate/:email", (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase().trim();
@@ -10355,10 +10481,13 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
         .status(404)
         .json({ success: false, message: "Teacher not found" });
 
+    // ─── 1️⃣ Base Components ───
     const baseSalary = Number(teacher.baseSalary) || 0;
     const perClassRate = Number(teacher.perClassRate) || 0;
+    const bonusPool = Number(teacher.bonusPool) || 0; // ⬅️ NEW
     const dailyDeduction = baseSalary > 0 ? baseSalary / 30 : 0;
 
+    // ─── 2️⃣ Attendance Data ───
     const attData = readAttData();
     const monthAtt = (attData.attendance || []).filter((a) => {
       if (
@@ -10373,18 +10502,30 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
     });
 
     const absentDays = monthAtt.filter((a) => a.status === "Absent").length;
-    const attendedClasses = (teacher.classSchedule || []).length * 4; // Assuming 4 weeks/month
-
+    const attendedClasses = (teacher.classSchedule || []).length * 4;
     const classEarnings = attendedClasses * perClassRate;
     const attendanceDeduction = absentDays * dailyDeduction;
+
+    // ─── 3️⃣ KPI Bonus ⬅️ NEW ───
+    const monthStr = `${year}-${String(month).padStart(2, "0")}`;
+    const kpiRecord = (teacher.kpiScores || []).find(
+      (s) => s.month === monthStr,
+    );
+    const kpiScore = kpiRecord ? Number(kpiRecord.kpiScore) : 0;
+    const kpiBonus =
+      bonusPool > 0 && kpiScore > 0
+        ? Math.round((bonusPool * kpiScore) / 100)
+        : 0;
+
+    // ─── 4️⃣ Final Calculation ───
     const calculatedSalary = Math.max(
       0,
-      baseSalary + classEarnings - attendanceDeduction,
+      baseSalary + classEarnings + kpiBonus - attendanceDeduction,
     );
 
     const history = teacher.paymentInfo?.paymentHistory || [];
     const alreadyPaidThisMonth = history
-      .filter((p) => p.status === "Paid" && p.month === `${year}-${month}`)
+      .filter((p) => p.status === "Paid" && p.month === monthStr)
       .reduce((s, p) => s + Number(p.amount || 0), 0);
 
     const netPayable = Math.max(0, calculatedSalary - alreadyPaidThisMonth);
@@ -10392,12 +10533,25 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
     res.status(200).json({
       success: true,
       teacherName: teacher.name,
+      month: monthStr,
       breakdown: {
+        // Base
         baseSalary,
+        perClassRate,
         attendedClasses,
         classEarnings,
+        // Deduction
         absentDays,
         attendanceDeduction,
+        // KPI ⬅️ NEW
+        bonusPool,
+        kpiScore,
+        kpiBonus,
+        kpiBreakdown: kpiRecord?.breakdown || null,
+        kpiNotes: kpiRecord?.notes || "",
+        kpiConfig: teacher.kpiConfig || DEFAULT_KPI_CONFIG,
+        kpiScores: kpiRecord?.scores || null,
+        hasKpiRecord: !!kpiRecord,
       },
       calculatedSalary,
       alreadyPaidThisMonth,
@@ -10407,7 +10561,6 @@ app.get("/api/teacher-salary/calculate/:email", (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 // =============================================
 // ✅ DEPARTMENT → KEYWORDS MAPPING
 // =============================================
