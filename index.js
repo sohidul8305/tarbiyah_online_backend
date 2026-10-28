@@ -2937,6 +2937,8 @@ app.post("/api/students/register/student", async (req, res) => {
       batchType,
       batchSchedule,
       studentImage,
+      paymentScreenshot, // ✅ FIX 1: যোগ করা হয়েছে
+      studentId, // ✅ FIX 2: যোগ করা হয়েছে
       department,
     } = req.body;
 
@@ -2969,7 +2971,6 @@ app.post("/api/students/register/student", async (req, res) => {
 
     // ============================================================
     // ✅ AUTO-CREATE COURSES in courses.json
-    // Student যেসব কোর্সে enroll করেছে সেগুলো courses.json-এ add
     // ============================================================
     const courseNames = String(course)
       .split(",")
@@ -2982,7 +2983,6 @@ app.post("/api/students/register/student", async (req, res) => {
     const enrolledIds = [];
 
     courseNames.forEach((courseName) => {
-      // এই নামের কোর্স আগে থেকেই আছে কি?
       let existingCourse = coursesData.courses.find(
         (c) =>
           (c.title || "").toLowerCase() === courseName.toLowerCase() ||
@@ -2992,7 +2992,6 @@ app.post("/api/students/register/student", async (req, res) => {
       if (existingCourse) {
         console.log(`✅ Found existing: ${courseName}`);
       } else {
-        // নতুন কোর্স তৈরি
         const newCourseId =
           Date.now().toString() + Math.floor(Math.random() * 1000);
         existingCourse = {
@@ -3033,7 +3032,7 @@ app.post("/api/students/register/student", async (req, res) => {
     console.log("📚 Enrolled IDs:", enrolledIds);
 
     // ============================================================
-    // ✅ নতুন Student ডকুমেন্ট — enrolledCourses সহ
+    // ✅ নতুন Student ডকুমেন্ট
     // ============================================================
     const newStudent = {
       name,
@@ -3061,10 +3060,10 @@ app.post("/api/students/register/student", async (req, res) => {
       paymentRemarks: paymentRemarks || "",
       paymentStatus: paymentStatus || "Unpaid",
 
-      // ✅ এই ৩টি নতুন ফিল্ড অবশ্যই যোগ করুন
+      // ✅ Batch + Screenshot (FIXED)
       batchType: batchType || "",
       batchSchedule: batchSchedule || "",
-      paymentScreenshot,
+      paymentScreenshot: paymentScreenshot || "", // ✅ FIX
 
       status: status || "Pending",
       admissionDate: admissionDate || new Date().toISOString(),
@@ -3077,9 +3076,20 @@ app.post("/api/students/register/student", async (req, res) => {
     };
 
     const result = await studentsCollection.insertOne(newStudent);
-    // ✅ Recorded course হলে auto batch_students-এ যোগ করুন
+    console.log("✅ Student registered:", result.insertedId);
+
+    // ============================================================
+    // ✅ Recorded course হলে auto batch_students-এ যোগ
+    // ============================================================
     try {
-      const detectedCourses = courseNames.filter((c) => isRecordedCourse(c));
+      const detectedCourses = courseNames.filter((c) =>
+        typeof isRecordedCourse === "function"
+          ? isRecordedCourse(c)
+          : String(c).toLowerCase().includes("imam nabawi") ||
+            String(c).toLowerCase().includes("40 hadith") ||
+            String(c).toLowerCase().includes("surah mulk"),
+      );
+
       if (detectedCourses.length > 0) {
         const batchesData = readBatchesData();
         const batchStudentsColl = getCollection("batch_students");
@@ -3108,7 +3118,7 @@ app.post("/api/students/register/student", async (req, res) => {
                   batchId: String(targetBatch._id),
                   studentDbId: result.insertedId.toString(),
                   name,
-                  studentId: studentId || "",
+                  studentId: studentId || "", // ✅ এখন destructured
                   phone: phone || "",
                   course: detectedCourse,
                   department: "Diploma",
@@ -3131,8 +3141,9 @@ app.post("/api/students/register/student", async (req, res) => {
       }
     } catch (batchErr) {
       console.warn("⚠️ Auto-enroll failed:", batchErr.message);
+      // Registration সফল হয়েছে — এখানে fail হলেও সমস্যা নেই
     }
-    console.log("✅ Student registered:", result.insertedId);
+
     console.log("📚 With courses:", enrolledIds);
 
     res.status(201).json({
