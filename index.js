@@ -3064,7 +3064,7 @@ app.post("/api/students/register/student", async (req, res) => {
       // ✅ এই ৩টি নতুন ফিল্ড অবশ্যই যোগ করুন
       batchType: batchType || "",
       batchSchedule: batchSchedule || "",
-      paymentScreenshot: paymentScreenshot || "",
+      paymentScreenshot,
 
       status: status || "Pending",
       admissionDate: admissionDate || new Date().toISOString(),
