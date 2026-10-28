@@ -131,8 +131,70 @@ const DEPARTMENT_COURSES = {
     "one to one quran revision",
   ],
   Alimiya: ["alimiyah for kids", "alimiyah program"],
-  Diploma: ["diploma in islamic studies"],
+  Diploma: [
+    "diploma in islamic studies",
+    "imam nabawi", // ✅
+    "40 hadiths", // ✅
+    "surah mulk", // ✅
+  ],
 };
+
+// =============================================
+// ✅ RECORDED COURSES — Video List + Helpers
+// =============================================
+const HADITH_40_VIDEOS = [
+  { title: "Session 1", url: "https://youtu.be/hox2-9CszHg" },
+  { title: "Session 2", url: "https://youtu.be/t0AvtmKesfM" },
+  { title: "Session 3", url: "https://youtu.be/kYMpEvhGbvA" },
+  { title: "Session 4", url: "https://youtu.be/EAan2kTwB_Q" },
+  { title: "Session 5", url: "https://youtu.be/Ltiwcq9JDo0" },
+  { title: "Session 6", url: "https://youtu.be/YnoknCA_TfA" },
+  { title: "Session 7", url: "https://youtu.be/9PrFwap8ckM" },
+  { title: "Session 8", url: "https://youtu.be/e676nmgauqk" },
+  { title: "Session 9", url: "https://youtu.be/Pvci3YmiI-M" },
+  { title: "Session 10", url: "https://youtu.be/RlgHYR5AQ4w" },
+  { title: "Session 11", url: "https://youtu.be/uGVy85PDRHc" },
+  { title: "Session 12", url: "https://youtu.be/lKcUyubyvig" },
+  { title: "Session 13", url: "https://youtu.be/eBdmiDTiVE4" },
+  { title: "Session 14", url: "https://youtu.be/lCZfdO-1YKs" },
+  { title: "Session 15", url: "https://youtu.be/ZApcxoda6Uk" },
+  { title: "Session 16", url: "https://youtu.be/3m_a1HLGWGw" },
+  { title: "Session 17", url: "https://youtu.be/tJ9pjkMF0l4" },
+  { title: "Session 18", url: "https://youtu.be/tIj9WPS6NIw" },
+  { title: "Session 19", url: "https://youtu.be/l6lXJnj6bSk" },
+  { title: "Session 20", url: "https://youtu.be/zzb-nv74tC4" },
+  { title: "Session 21", url: "https://youtu.be/prd_6g4z7I8" },
+  { title: "Session 22", url: "https://youtu.be/JHHGMNCIuMQ" },
+  { title: "Session 23", url: "https://youtu.be/veMS_XpzuJI" },
+  { title: "Session 24", url: "https://youtu.be/rHG9GXK3ngQ" },
+  { title: "Session 25", url: "https://youtu.be/qQdObp3lXB4" },
+  { title: "Session 26", url: "https://youtu.be/HEdnZ2bGzZs" },
+  { title: "Session 27", url: "https://youtu.be/G4JcKcrlRJA" },
+  { title: "Session 28", url: "https://youtu.be/_ecH-mt66mM" },
+  { title: "Session 29", url: "https://youtu.be/zPQ8PwR4yXQ" },
+  { title: "Session 30", url: "https://youtu.be/jbsO30E7pMk" },
+  { title: "Session 31", url: "https://youtu.be/E-q_jmgCZ98" },
+  { title: "Session 32", url: "https://youtu.be/MT2wp0ST0Jw" },
+  { title: "Session 33", url: "https://youtu.be/wEtQ1bp8GP4" },
+  { title: "Session 34", url: "https://youtu.be/yvxxKwQGG54" },
+  { title: "Session 35", url: "https://youtu.be/fEnQz0M-nm4" },
+  { title: "Session 36", url: "https://youtu.be/lAFpYripOSs" },
+  { title: "Session 37", url: "https://youtu.be/PB4OXS4K7aM" },
+  { title: "Session 38", url: "https://youtu.be/kMNu2n6pBLI" },
+  { title: "Session 39", url: "https://youtu.be/dOP7jFBD2pk" },
+  { title: "Session 40", url: "https://youtu.be/aIIVg7Bes-M" },
+  { title: "Session 41", url: "https://youtu.be/aH1P2ymRAiM" },
+  { title: "Session 42", url: "https://youtu.be/Wk9EC1vkPts" },
+];
+
+function isRecordedCourse(courseName = "") {
+  const c = String(courseName).toLowerCase();
+  return (
+    c.includes("imam nabawi") ||
+    c.includes("40 hadith") ||
+    c.includes("surah mulk")
+  );
+}
 
 // ✅ একই রকম filter — batch, teacher, fee-র জন্য
 function teacherMatchesDepartment(teacher, department) {
@@ -2285,6 +2347,102 @@ app.post("/api/batches/create", (req, res) => {
   }
 });
 
+// =============================================
+// ✅ SEED: Recorded Course Batch (একবারই কল করবেন)
+// GET /api/seed/recorded-course-batch
+// =============================================
+app.get("/api/seed/recorded-course-batch", (req, res) => {
+  try {
+    const data = readBatchesData();
+    if (!data.batches) data.batches = [];
+
+    let created = [];
+    let updated = [];
+
+    // ─── Imam Nabawi's 40 Hadiths ───
+    const hadithBatchName = "Imam Nabawi's 40 Hadiths — Recorded Batch";
+    let hadithBatch = data.batches.find(
+      (b) => String(b.name).toLowerCase() === hadithBatchName.toLowerCase(),
+    );
+
+    const hadithVideos = HADITH_40_VIDEOS.map((v, i) => ({
+      _id: `vid_${Date.now()}_${i}`,
+      title: v.title,
+      url: v.url,
+      addedAt: new Date().toISOString(),
+    }));
+
+    if (hadithBatch) {
+      hadithBatch.videos = hadithVideos;
+      hadithBatch.updatedAt = new Date().toISOString();
+      updated.push(hadithBatch._id);
+    } else {
+      hadithBatch = {
+        _id: "REC_" + Date.now(),
+        id: Date.now(),
+        name: hadithBatchName,
+        course: "Imam Nabawi's 40 Hadiths",
+        department: "Diploma",
+        students: 0,
+        schedule: "Self-paced (Recorded)",
+        teacher: "Shaykh Mokhtar Ahmad",
+        videoUrl: "",
+        videos: hadithVideos,
+        description:
+          "Recorded course on 42 sessions covering Imam Nawawi's 40 Hadiths.",
+        status: "Active",
+        isRecorded: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      data.batches.push(hadithBatch);
+      created.push(hadithBatch._id);
+    }
+
+    // ─── Surah Mulk Hifz Course ───
+    const mulkBatchName = "Surah Mulk Hifz Course — Recorded Batch";
+    let mulkBatch = data.batches.find(
+      (b) => String(b.name).toLowerCase() === mulkBatchName.toLowerCase(),
+    );
+    if (!mulkBatch) {
+      mulkBatch = {
+        _id: "REC_MULK_" + Date.now(),
+        id: Date.now() + 1,
+        name: mulkBatchName,
+        course: "Surah Mulk Hifz Course",
+        department: "Diploma",
+        students: 0,
+        schedule: "Coming Soon",
+        teacher: "",
+        videoUrl: "",
+        videos: [],
+        description: "Surah Mulk Hifz course — videos will be updated soon.",
+        status: "Coming Soon",
+        isRecorded: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      data.batches.push(mulkBatch);
+      created.push(mulkBatch._id);
+    }
+
+    writeBatchesData(data);
+
+    res.json({
+      success: true,
+      message: `✅ Recorded batches ready. Created: ${created.length}, Updated: ${updated.length}`,
+      hadithBatchId: hadithBatch._id,
+      hadithVideosCount: hadithVideos.length,
+      mulkBatchId: mulkBatch._id,
+      created,
+      updated,
+    });
+  } catch (error) {
+    console.error("❌ Seed error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ UPDATE BATCH — safely handles LMS fields, videos, students arrays
 app.put("/api/batches/update/:id", (req, res) => {
   try {
@@ -2919,6 +3077,61 @@ app.post("/api/students/register/student", async (req, res) => {
     };
 
     const result = await studentsCollection.insertOne(newStudent);
+    // ✅ Recorded course হলে auto batch_students-এ যোগ করুন
+    try {
+      const detectedCourses = courseNames.filter((c) => isRecordedCourse(c));
+      if (detectedCourses.length > 0) {
+        const batchesData = readBatchesData();
+        const batchStudentsColl = getCollection("batch_students");
+
+        if (batchStudentsColl) {
+          for (const detectedCourse of detectedCourses) {
+            const targetBatch = (batchesData.batches || []).find((b) => {
+              const bc = String(b.course || "").toLowerCase();
+              const dc = String(detectedCourse).toLowerCase();
+              return (
+                bc.includes(dc.slice(0, 12)) || dc.includes(bc.slice(0, 12))
+              );
+            });
+
+            if (targetBatch) {
+              const dup = await batchStudentsColl.findOne({
+                batchId: String(targetBatch._id),
+                $or: [
+                  { studentDbId: result.insertedId.toString() },
+                  { phone: phone },
+                ],
+              });
+
+              if (!dup) {
+                await batchStudentsColl.insertOne({
+                  batchId: String(targetBatch._id),
+                  studentDbId: result.insertedId.toString(),
+                  name,
+                  studentId: studentId || "",
+                  phone: phone || "",
+                  course: detectedCourse,
+                  department: "Diploma",
+                  password: password || "",
+                  scholarshipAmount: 0,
+                  courseFee: 1000,
+                  paidAmount: paidAmount || 0,
+                  dueAmount: 0,
+                  paymentStatus: "Paid",
+                  status: "Active",
+                  admissionDate: new Date().toISOString(),
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                });
+                console.log(`🎬 Auto-enrolled in: ${targetBatch.name}`);
+              }
+            }
+          }
+        }
+      }
+    } catch (batchErr) {
+      console.warn("⚠️ Auto-enroll failed:", batchErr.message);
+    }
     console.log("✅ Student registered:", result.insertedId);
     console.log("📚 With courses:", enrolledIds);
 
