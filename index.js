@@ -6395,72 +6395,97 @@ app.get("/api/test", (req, res) => {
 });
 
 // =============================================
-// ✅ BATCH ROUTES
 // =============================================
-
-// GET ALL BATCHES
-// ---- GET ALL ----
-
-// GET ALL BATCHES
-
-// ✅ GET ALL BATCHES
-
-// =============================================
-// ✅ RECORDED COURSE LOGIN — phone + password
+// ✅ RECORDED COURSE LOGIN — Student ID OR Phone
 // POST /api/recorded-course/login
-// Body: { phone, password }
-// Returns: student info + all videos
+// Body: { identifier, phone, studentId, password }
+// যেকোনো একটার সাথে password মিললেই login
 // =============================================
 app.post("/api/recorded-course/login", async (req, res) => {
   try {
+    console.log("════════════════════════════════════════");
     console.log("📥 POST /api/recorded-course/login");
-    console.log("📝 Body:", { ...req.body, password: "***" });
+    console.log("📝 Body:", {
+      identifier: req.body.identifier,
+      phone: req.body.phone,
+      studentId: req.body.studentId,
+      password: "***",
+    });
 
-    const { phone, password } = req.body;
+    const { identifier, phone, studentId, password } = req.body;
 
-    if (!phone || !password) {
+    // ✅ Frontend তিনটাই পাঠায় — যেটা আছে সেটাই ব্যবহার করি
+    const loginId = String(identifier || phone || studentId || "").trim();
+
+    console.log("🔍 Login ID:", loginId);
+
+    if (!loginId || !password) {
       return res.status(400).json({
         success: false,
-        message: "ফোন নম্বর ও পাসওয়ার্ড আবশ্যক!",
+        message: "Student ID / Phone এবং Password আবশ্যক!",
       });
     }
 
     const studentsCollection = getCollection("students");
     const bsColl = getCollection("batch_students");
 
-    // Search in students first
+    // ✅ Case-insensitive exact match regex
+    const escaped = loginId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp("^" + escaped + "$", "i");
+
+    // ✅ চার জায়গায় খুঁজব: studentId, phone, username, roll
+    const searchQuery = {
+      $or: [
+        { studentId: regex },
+        { phone: loginId },
+        { username: regex },
+        { roll: regex },
+      ],
+    };
+
+    console.log("🔍 Search query:", JSON.stringify(searchQuery));
+
+    // ─── STEP 1: students collection ───
     let student = null;
+    let sourceCollection = null;
+
     if (studentsCollection) {
-      student = await studentsCollection.findOne({
-        phone: { $regex: String(phone).trim() + "$" },
-      });
+      student = await studentsCollection.findOne(searchQuery);
+      if (student) {
+        sourceCollection = "students";
+        console.log(`✅ Found in students: ${student.name}`);
+      }
     }
 
-    // Fallback to batch_students
-    let sourceCollection = "students";
+    // ─── STEP 2: batch_students fallback ───
     if (!student && bsColl) {
-      student = await bsColl.findOne({
-        phone: { $regex: String(phone).trim() + "$" },
-      });
-      if (student) sourceCollection = "batch_students";
+      student = await bsColl.findOne(searchQuery);
+      if (student) {
+        sourceCollection = "batch_students";
+        console.log(`✅ Found in batch_students: ${student.name}`);
+      }
     }
 
     if (!student) {
+      console.log("❌ Student not found in any collection");
       return res.status(401).json({
         success: false,
-        message: "এই ফোন নম্বর দিয়ে কোনো একাউন্ট পাওয়া যায়নি!",
+        message:
+          "এই Student ID / Phone দিয়ে কোনো একাউন্ট পাওয়া যায়নি! অ্যাডমিনের সাথে যোগাযোগ করুন।",
       });
     }
 
-    // Check password
+    // ─── Password check ───
     const storedPassword = String(student.password || "").trim();
+
     if (!storedPassword) {
       return res.status(401).json({
         success: false,
         message:
-          "আপনার একাউন্ট এখনো approve হয়নি। অ্যাডমিনের সাথে যোগাযোগ করুন।",
+          "আপনার একাউন্টে পাসওয়ার্ড সেট করা হয়নি। অ্যাডমিনের সাথে যোগাযোগ করুন।",
       });
     }
+
     if (storedPassword !== String(password).trim()) {
       return res.status(401).json({
         success: false,
@@ -6468,12 +6493,12 @@ app.post("/api/recorded-course/login", async (req, res) => {
       });
     }
 
-    // Check active status (only for students collection)
+    // ─── Status check ───
     if (sourceCollection === "students" && student.status !== "Active") {
       return res.status(403).json({
         success: false,
         message:
-          "আপনার একাউন্ট এখনো approve হয়নি। অ্যাডমিন approve করার পর লগইন করুন।",
+          "আপনার একাউন্ট approve হয়নি। অ্যাডমিন approve করার পর লগইন করুন।",
       });
     }
 
@@ -6502,7 +6527,6 @@ app.post("/api/recorded-course/login", async (req, res) => {
           url: targetBatch.videoUrl.trim(),
         });
       }
-
       (targetBatch.videos || []).forEach((v, i) => {
         if (v && v.url && v.url.trim()) {
           videos.push({
@@ -6514,7 +6538,7 @@ app.post("/api/recorded-course/login", async (req, res) => {
       });
     }
 
-    // Also from batch_videos collection
+    // Also from batch_videos
     const bvColl = getCollection("batch_videos");
     if (bvColl && targetBatch) {
       const extra = await bvColl
@@ -6532,7 +6556,7 @@ app.post("/api/recorded-course/login", async (req, res) => {
       });
     }
 
-    // Dedupe by URL
+    // ─── Dedupe by URL ───
     const seenUrls = new Set();
     const uniqueVideos = [];
     videos.forEach((v) => {
@@ -6547,6 +6571,7 @@ app.post("/api/recorded-course/login", async (req, res) => {
     console.log(
       `✅ Login OK: ${student.name} | Videos: ${uniqueVideos.length}`,
     );
+    console.log("════════════════════════════════════════");
 
     res.status(200).json({
       success: true,
