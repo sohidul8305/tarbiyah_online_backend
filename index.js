@@ -3229,7 +3229,8 @@ app.get("/api/debug-all-collections", async (req, res) => {
 // =============================================
 app.put("/api/students/approve/:id", async (req, res) => {
   try {
-    console.log("📥 PUT /api/students/approve/:id");
+    console.log("════════════════════════════════════════");
+    console.log("📥 PUT /api/students/approve/:id", req.params.id);
     console.log("📝 Body:", req.body);
 
     const { id } = req.params;
@@ -3251,6 +3252,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
 
     const collectionNames = [
       "students",
+      "batch_students",
       "basic_tazweed_students",
       "najera_batch_students",
     ];
@@ -3259,11 +3261,10 @@ app.put("/api/students/approve/:id", async (req, res) => {
     let foundCollectionName = null;
     let student = null;
 
-    // ✅ ৩টি collection-এ খুঁজব
+    // Find in which collection student exists
     for (const name of collectionNames) {
       const coll = getCollection(name);
       if (!coll) continue;
-
       try {
         const found = await coll.findOne({ _id: new ObjectId(id) });
         if (found) {
@@ -3273,9 +3274,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
           console.log(`✅ Found in "${name}":`, student.name);
           break;
         }
-      } catch (e) {
-        // Invalid ObjectId — skip
-      }
+      } catch (e) {}
     }
 
     if (!student) {
@@ -3285,7 +3284,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
       });
     }
 
-    // ✅ Duplicate studentId check — সব collection-এ
+    // Duplicate studentId check across all collections
     for (const name of collectionNames) {
       const coll = getCollection(name);
       if (!coll) continue;
@@ -3301,7 +3300,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
       }
     }
 
-    // ✅ Update
+    // ✅ Update primary record
     await foundCollection.updateOne(
       { _id: new ObjectId(id) },
       {
@@ -3316,8 +3315,98 @@ app.put("/api/students/approve/:id", async (req, res) => {
       },
     );
 
-    console.log(`✅ Approved in "${foundCollectionName}"`);
-    console.log(`🆔 Student ID: ${studentId}`);
+    console.log(`✅ Primary updated: ${foundCollectionName}`);
+
+    // ═══════════════════════════════════════════════
+    // ✅ NEW: Sync to batch_students (recorded course videos-এর জন্য)
+    // ═══════════════════════════════════════════════
+    try {
+      const bsColl = getCollection("batch_students");
+      if (bsColl) {
+        // Find matching batch_students record
+        const bsRecord = await bsColl.findOne({
+          $or: [
+            { studentDbId: String(id) },
+            { phone: student.phone },
+            { studentId: studentId.trim() },
+          ].filter((c) => {
+            if (c.phone && !c.phone) return false;
+            if (c.studentDbId && !c.studentDbId) return false;
+            if (c.studentId && !c.studentId) return false;
+            return true;
+          }),
+        });
+
+        if (bsRecord) {
+          // ✅ Update existing record
+          await bsColl.updateOne(
+            { _id: bsRecord._id },
+            {
+              $set: {
+                studentId: studentId.trim(),
+                password: password.trim(),
+                status: "Active",
+                updatedAt: new Date(),
+              },
+            },
+          );
+          console.log(
+            `🔄 Synced batch_students: ${bsRecord._id} | Batch: ${bsRecord.batchId}`,
+          );
+        } else {
+          // ✅ Create new batch_students if not exists
+          // (for students enrolled before the auto-enroll fix)
+          const batchesData = readBatchesData();
+          const courseStr = String(student.course || "").toLowerCase();
+
+          const targetBatch = (batchesData.batches || []).find((b) => {
+            const bc = String(b.course || "").toLowerCase();
+            const bn = String(b.name || "").toLowerCase();
+            return (
+              (bc && courseStr.includes(bc.slice(0, 12))) ||
+              (bn && courseStr.includes(bn.slice(0, 12))) ||
+              (bc && bc.includes(courseStr.slice(0, 12)))
+            );
+          });
+
+          if (targetBatch) {
+            await bsColl.insertOne({
+              batchId: String(targetBatch._id),
+              studentDbId: String(id),
+              name: student.name,
+              studentId: studentId.trim(),
+              phone: student.phone || "",
+              course: targetBatch.course || student.course || "",
+              department:
+                student.department || targetBatch.department || "Diploma",
+              password: password.trim(),
+              scholarshipAmount: 0,
+              courseFee: Number(student.courseFee) || 1000,
+              paidAmount: Number(student.paidAmount) || 0,
+              dueAmount: 0,
+              paymentStatus: "Paid",
+              status: "Active",
+              admissionDate: student.admissionDate || new Date().toISOString(),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            console.log(
+              `🆕 Created batch_students: ${student.name} → ${targetBatch.name}`,
+            );
+          } else {
+            console.warn(
+              `⚠️ No matching batch found for course: "${student.course}"`,
+            );
+          }
+        }
+      }
+    } catch (syncErr) {
+      console.warn("⚠️ batch_students sync failed:", syncErr.message);
+      // Don't fail approval — registration succeeded
+    }
+
+    console.log("✅ Approval completed");
+    console.log("════════════════════════════════════════");
 
     res.status(200).json({
       success: true,
@@ -3327,10 +3416,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Approve Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 // =============================================
@@ -3592,7 +3678,8 @@ app.post("/api/students/campus-login", async (req, res) => {
 
 app.put("/api/students/approve/:id", async (req, res) => {
   try {
-    console.log("📥 PUT /api/students/approve/:id");
+    console.log("════════════════════════════════════════");
+    console.log("📥 PUT /api/students/approve/:id", req.params.id);
     console.log("📝 Body:", req.body);
 
     const { id } = req.params;
@@ -3612,7 +3699,6 @@ app.put("/api/students/approve/:id", async (req, res) => {
       });
     }
 
-    // ✅ batch_students যোগ করা হয়েছে
     const collectionNames = [
       "students",
       "batch_students",
@@ -3624,6 +3710,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
     let foundCollectionName = null;
     let student = null;
 
+    // Find in which collection student exists
     for (const name of collectionNames) {
       const coll = getCollection(name);
       if (!coll) continue;
@@ -3646,7 +3733,7 @@ app.put("/api/students/approve/:id", async (req, res) => {
       });
     }
 
-    // ✅ Duplicate studentId check — সব collection-এ
+    // Duplicate studentId check across all collections
     for (const name of collectionNames) {
       const coll = getCollection(name);
       if (!coll) continue;
@@ -3662,12 +3749,13 @@ app.put("/api/students/approve/:id", async (req, res) => {
       }
     }
 
+    // ✅ Update primary record
     await foundCollection.updateOne(
       { _id: new ObjectId(id) },
       {
         $set: {
           studentId: studentId.trim(),
-          password: password.trim(), // ✅ এখানে unique password save হবে
+          password: password.trim(),
           roll: roll || "",
           status: "Active",
           approvedAt: new Date(),
@@ -3676,8 +3764,98 @@ app.put("/api/students/approve/:id", async (req, res) => {
       },
     );
 
-    console.log(`✅ Approved in "${foundCollectionName}"`);
-    console.log(`🆔 Student ID: ${studentId} | 🔑 Password: ${password}`);
+    console.log(`✅ Primary updated: ${foundCollectionName}`);
+
+    // ═══════════════════════════════════════════════
+    // ✅ NEW: Sync to batch_students (recorded course videos-এর জন্য)
+    // ═══════════════════════════════════════════════
+    try {
+      const bsColl = getCollection("batch_students");
+      if (bsColl) {
+        // Find matching batch_students record
+        const bsRecord = await bsColl.findOne({
+          $or: [
+            { studentDbId: String(id) },
+            { phone: student.phone },
+            { studentId: studentId.trim() },
+          ].filter((c) => {
+            if (c.phone && !c.phone) return false;
+            if (c.studentDbId && !c.studentDbId) return false;
+            if (c.studentId && !c.studentId) return false;
+            return true;
+          }),
+        });
+
+        if (bsRecord) {
+          // ✅ Update existing record
+          await bsColl.updateOne(
+            { _id: bsRecord._id },
+            {
+              $set: {
+                studentId: studentId.trim(),
+                password: password.trim(),
+                status: "Active",
+                updatedAt: new Date(),
+              },
+            },
+          );
+          console.log(
+            `🔄 Synced batch_students: ${bsRecord._id} | Batch: ${bsRecord.batchId}`,
+          );
+        } else {
+          // ✅ Create new batch_students if not exists
+          // (for students enrolled before the auto-enroll fix)
+          const batchesData = readBatchesData();
+          const courseStr = String(student.course || "").toLowerCase();
+
+          const targetBatch = (batchesData.batches || []).find((b) => {
+            const bc = String(b.course || "").toLowerCase();
+            const bn = String(b.name || "").toLowerCase();
+            return (
+              (bc && courseStr.includes(bc.slice(0, 12))) ||
+              (bn && courseStr.includes(bn.slice(0, 12))) ||
+              (bc && bc.includes(courseStr.slice(0, 12)))
+            );
+          });
+
+          if (targetBatch) {
+            await bsColl.insertOne({
+              batchId: String(targetBatch._id),
+              studentDbId: String(id),
+              name: student.name,
+              studentId: studentId.trim(),
+              phone: student.phone || "",
+              course: targetBatch.course || student.course || "",
+              department:
+                student.department || targetBatch.department || "Diploma",
+              password: password.trim(),
+              scholarshipAmount: 0,
+              courseFee: Number(student.courseFee) || 1000,
+              paidAmount: Number(student.paidAmount) || 0,
+              dueAmount: 0,
+              paymentStatus: "Paid",
+              status: "Active",
+              admissionDate: student.admissionDate || new Date().toISOString(),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            console.log(
+              `🆕 Created batch_students: ${student.name} → ${targetBatch.name}`,
+            );
+          } else {
+            console.warn(
+              `⚠️ No matching batch found for course: "${student.course}"`,
+            );
+          }
+        }
+      }
+    } catch (syncErr) {
+      console.warn("⚠️ batch_students sync failed:", syncErr.message);
+      // Don't fail approval — registration succeeded
+    }
+
+    console.log("✅ Approval completed");
+    console.log("════════════════════════════════════════");
 
     res.status(200).json({
       success: true,
@@ -6226,6 +6404,167 @@ app.get("/api/test", (req, res) => {
 // GET ALL BATCHES
 
 // ✅ GET ALL BATCHES
+
+// =============================================
+// ✅ RECORDED COURSE LOGIN — phone + password
+// POST /api/recorded-course/login
+// Body: { phone, password }
+// Returns: student info + all videos
+// =============================================
+app.post("/api/recorded-course/login", async (req, res) => {
+  try {
+    console.log("📥 POST /api/recorded-course/login");
+    console.log("📝 Body:", { ...req.body, password: "***" });
+
+    const { phone, password } = req.body;
+
+    if (!phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "ফোন নম্বর ও পাসওয়ার্ড আবশ্যক!",
+      });
+    }
+
+    const studentsCollection = getCollection("students");
+    const bsColl = getCollection("batch_students");
+
+    // Search in students first
+    let student = null;
+    if (studentsCollection) {
+      student = await studentsCollection.findOne({
+        phone: { $regex: String(phone).trim() + "$" },
+      });
+    }
+
+    // Fallback to batch_students
+    let sourceCollection = "students";
+    if (!student && bsColl) {
+      student = await bsColl.findOne({
+        phone: { $regex: String(phone).trim() + "$" },
+      });
+      if (student) sourceCollection = "batch_students";
+    }
+
+    if (!student) {
+      return res.status(401).json({
+        success: false,
+        message: "এই ফোন নম্বর দিয়ে কোনো একাউন্ট পাওয়া যায়নি!",
+      });
+    }
+
+    // Check password
+    const storedPassword = String(student.password || "").trim();
+    if (!storedPassword) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "আপনার একাউন্ট এখনো approve হয়নি। অ্যাডমিনের সাথে যোগাযোগ করুন।",
+      });
+    }
+    if (storedPassword !== String(password).trim()) {
+      return res.status(401).json({
+        success: false,
+        message: "পাসওয়ার্ড ভুল!",
+      });
+    }
+
+    // Check active status (only for students collection)
+    if (sourceCollection === "students" && student.status !== "Active") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "আপনার একাউন্ট এখনো approve হয়নি। অ্যাডমিন approve করার পর লগইন করুন।",
+      });
+    }
+
+    // ─── Find course batch ───
+    const courseStr = String(student.course || "").toLowerCase();
+    const batchesData = readBatchesData();
+    const allBatches = batchesData.batches || [];
+
+    const targetBatch = allBatches.find((b) => {
+      const bc = String(b.course || "").toLowerCase();
+      const bn = String(b.name || "").toLowerCase();
+      if (bc && courseStr.includes(bc.slice(0, 15))) return true;
+      if (bn && courseStr.includes(bn.slice(0, 15))) return true;
+      if (bc && bc.includes(courseStr.slice(0, 15))) return true;
+      return false;
+    });
+
+    // ─── Collect videos ───
+    const videos = [];
+
+    if (targetBatch) {
+      if (targetBatch.videoUrl && targetBatch.videoUrl.trim()) {
+        videos.push({
+          _id: targetBatch._id + "_p",
+          title: `${targetBatch.name} - Primary Video`,
+          url: targetBatch.videoUrl.trim(),
+        });
+      }
+
+      (targetBatch.videos || []).forEach((v, i) => {
+        if (v && v.url && v.url.trim()) {
+          videos.push({
+            _id: `${targetBatch._id}_v${i}`,
+            title: v.title || `Session ${i + 1}`,
+            url: v.url.trim(),
+          });
+        }
+      });
+    }
+
+    // Also from batch_videos collection
+    const bvColl = getCollection("batch_videos");
+    if (bvColl && targetBatch) {
+      const extra = await bvColl
+        .find({ batchId: String(targetBatch._id) })
+        .sort({ addedAt: 1 })
+        .toArray();
+      extra.forEach((v) => {
+        if (v.url && v.url.trim()) {
+          videos.push({
+            _id: `bv_${v._id}`,
+            title: v.title || "Video",
+            url: v.url.trim(),
+          });
+        }
+      });
+    }
+
+    // Dedupe by URL
+    const seenUrls = new Set();
+    const uniqueVideos = [];
+    videos.forEach((v) => {
+      if (!seenUrls.has(v.url)) {
+        seenUrls.add(v.url);
+        uniqueVideos.push(v);
+      }
+    });
+
+    const { password: _, ...safeStudent } = student;
+
+    console.log(
+      `✅ Login OK: ${student.name} | Videos: ${uniqueVideos.length}`,
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "লগইন সফল!",
+      student: {
+        ...safeStudent,
+        batchName: targetBatch?.name || "",
+        batchCourse: targetBatch?.course || "",
+        batchTeacher: targetBatch?.teacher || "",
+      },
+      videos: uniqueVideos,
+      totalVideos: uniqueVideos.length,
+    });
+  } catch (error) {
+    console.error("❌ Recorded login error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 app.get("/api/batches/all", (req, res) => {
   try {
     console.log("📥 GET /api/batches/all");
