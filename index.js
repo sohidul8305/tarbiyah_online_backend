@@ -142,6 +142,12 @@ const DEPARTMENT_COURSES = {
 // =============================================
 // ✅ RECORDED COURSES — Video List + Helpers
 // =============================================
+// =============================================
+// ✅ RECORDED COURSE VIDEOS — Imam Nabawi's 40 Hadiths
+// =============================================
+// =============================================
+// ✅ RECORDED COURSE VIDEOS — Imam Nabawi's 40 Hadiths
+// =============================================
 const HADITH_40_VIDEOS = [
   { title: "Session 1", url: "https://youtu.be/hox2-9CszHg" },
   { title: "Session 2", url: "https://youtu.be/t0AvtmKesfM" },
@@ -6401,6 +6407,10 @@ app.get("/api/test", (req, res) => {
 // Body: { identifier, phone, studentId, password }
 // যেকোনো একটার সাথে password মিললেই login
 // =============================================
+// =============================================
+// ✅ RECORDED COURSE LOGIN — Student ID OR Phone
+// POST /api/recorded-course/login
+// =============================================
 app.post("/api/recorded-course/login", async (req, res) => {
   try {
     console.log("════════════════════════════════════════");
@@ -6413,8 +6423,6 @@ app.post("/api/recorded-course/login", async (req, res) => {
     });
 
     const { identifier, phone, studentId, password } = req.body;
-
-    // ✅ Frontend তিনটাই পাঠায় — যেটা আছে সেটাই ব্যবহার করি
     const loginId = String(identifier || phone || studentId || "").trim();
 
     console.log("🔍 Login ID:", loginId);
@@ -6429,11 +6437,9 @@ app.post("/api/recorded-course/login", async (req, res) => {
     const studentsCollection = getCollection("students");
     const bsColl = getCollection("batch_students");
 
-    // ✅ Case-insensitive exact match regex
     const escaped = loginId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const regex = new RegExp("^" + escaped + "$", "i");
 
-    // ✅ চার জায়গায় খুঁজব: studentId, phone, username, roll
     const searchQuery = {
       $or: [
         { studentId: regex },
@@ -6442,8 +6448,6 @@ app.post("/api/recorded-course/login", async (req, res) => {
         { roll: regex },
       ],
     };
-
-    console.log("🔍 Search query:", JSON.stringify(searchQuery));
 
     // ─── STEP 1: students collection ───
     let student = null;
@@ -6502,7 +6506,9 @@ app.post("/api/recorded-course/login", async (req, res) => {
       });
     }
 
-    // ─── Find course batch ───
+    // ═══════════════════════════════════════════════════════
+    // ✅ STEP 3: Collect videos (3 sources + fallback)
+    // ═══════════════════════════════════════════════════════
     const courseStr = String(student.course || "").toLowerCase();
     const batchesData = readBatchesData();
     const allBatches = batchesData.batches || [];
@@ -6516,9 +6522,14 @@ app.post("/api/recorded-course/login", async (req, res) => {
       return false;
     });
 
-    // ─── Collect videos ───
+    console.log(
+      `📦 Target batch: ${targetBatch ? targetBatch.name : "(none found)"}`,
+    );
+
+    // ✅ Collect videos in array — এক জায়গায় সব
     const videos = [];
 
+    // (a) Target batch এর videoUrl + videos array
     if (targetBatch) {
       if (targetBatch.videoUrl && targetBatch.videoUrl.trim()) {
         videos.push({
@@ -6538,7 +6549,7 @@ app.post("/api/recorded-course/login", async (req, res) => {
       });
     }
 
-    // Also from batch_videos
+    // (b) batch_videos collection (MongoDB)
     const bvColl = getCollection("batch_videos");
     if (bvColl && targetBatch) {
       const extra = await bvColl
@@ -6556,6 +6567,27 @@ app.post("/api/recorded-course/login", async (req, res) => {
       });
     }
 
+    // (c) ✅ FALLBACK — videos খালি হলে hardcoded list থেকে দিব
+    if (videos.length === 0) {
+      const isHadithCourse =
+        courseStr.includes("imam nabawi") ||
+        courseStr.includes("40 hadith") ||
+        courseStr.includes("hadiths");
+
+      if (isHadithCourse) {
+        console.log(
+          "⚠️ No videos in batch — using HADITH_40_VIDEOS fallback",
+        );
+        HADITH_40_VIDEOS.forEach((v, i) => {
+          videos.push({
+            _id: `fallback_hadith_${i}`,
+            title: v.title,
+            url: v.url,
+          });
+        });
+      }
+    }
+
     // ─── Dedupe by URL ───
     const seenUrls = new Set();
     const uniqueVideos = [];
@@ -6568,6 +6600,7 @@ app.post("/api/recorded-course/login", async (req, res) => {
 
     const { password: _, ...safeStudent } = student;
 
+    console.log(`✅ Total videos: ${uniqueVideos.length}`);
     console.log(
       `✅ Login OK: ${student.name} | Videos: ${uniqueVideos.length}`,
     );
