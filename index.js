@@ -6415,22 +6415,26 @@ app.post("/api/recorded-course/login", async (req, res) => {
   try {
     console.log("════════════════════════════════════════");
     console.log("📥 POST /api/recorded-course/login");
-    console.log("📝 Body:", {
-      identifier: req.body.identifier,
-      phone: req.body.phone,
-      studentId: req.body.studentId,
-      password: "***",
-    });
 
-    const { identifier, phone, studentId, password } = req.body;
+    // ✅ deviceId ফ্রন্টএন্ড থেকে পাঠাতে হবে
+    const { identifier, phone, studentId, password, deviceId } = req.body;
     const loginId = String(identifier || phone || studentId || "").trim();
 
-    console.log("🔍 Login ID:", loginId);
+    console.log("🔍 Login ID:", loginId, "| Device ID:", deviceId);
 
     if (!loginId || !password) {
       return res.status(400).json({
         success: false,
         message: "Student ID / Phone এবং Password আবশ্যক!",
+      });
+    }
+
+    // ✅ Device ID না থাকলে এরর দিবে
+    if (!deviceId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "ডিভাইস সনাক্ত করা যায়নি! অনুগ্রহ করে ব্রাউজার রিফ্রেশ করে আবার চেষ্টা করুন।",
       });
     }
 
@@ -6452,11 +6456,13 @@ app.post("/api/recorded-course/login", async (req, res) => {
     // ─── STEP 1: students collection ───
     let student = null;
     let sourceCollection = null;
+    let targetCollection = null;
 
     if (studentsCollection) {
       student = await studentsCollection.findOne(searchQuery);
       if (student) {
         sourceCollection = "students";
+        targetCollection = studentsCollection;
         console.log(`✅ Found in students: ${student.name}`);
       }
     }
@@ -6466,6 +6472,7 @@ app.post("/api/recorded-course/login", async (req, res) => {
       student = await bsColl.findOne(searchQuery);
       if (student) {
         sourceCollection = "batch_students";
+        targetCollection = bsColl;
         console.log(`✅ Found in batch_students: ${student.name}`);
       }
     }
@@ -6505,6 +6512,45 @@ app.post("/api/recorded-course/login", async (req, res) => {
           "আপনার একাউন্ট approve হয়নি। অ্যাডমিন approve করার পর লগইন করুন।",
       });
     }
+
+    // ═══════════════════════════════════════════════════════
+    // ✅ NEW: DEVICE LIMIT CHECK (সর্বোচ্চ ২টি ডিভাইস)
+    // ═══════════════════════════════════════════════════════
+    let activeDevices = student.activeDevices || [];
+
+    // বর্তমান ডিভাইসটি আগে থেকে থাকলে সেটি রিমুভ করে দিব, যাতে রি-লগইন করলে ডুপ্লিকেট না হয়
+    activeDevices = activeDevices.filter((d) => d.deviceId !== deviceId);
+
+    // যদি ২টি ডিভাইস আগে থেকেই অ্যাক্টিভ থাকে, তবে ব্লক করে দিব
+    if (activeDevices.length >= 2) {
+      console.log("⛔ Device limit exceeded for:", student.name);
+      return res.status(403).json({
+        success: false,
+        message:
+          "আপনি ইতিমধ্যে সর্বোচ্চ ২টি ডিভাইসে লগইন করেছেন। নতুন ডিভাইসে লগইন করতে চাইলে অনুগ্রহ করে অন্য কোনো ডিভাইস থেকে লগআউট করুন।",
+      });
+    }
+
+    // নতুন ডিভাইসটি অ্যারেতে যোগ করুন
+    activeDevices.push({
+      deviceId: deviceId,
+      loginTime: new Date(),
+      ip:
+        req.ip ||
+        req.headers["x-forwarded-for"] ||
+        req.socket.remoteAddress ||
+        "Unknown",
+    });
+
+    // ডেটাবেসে activeDevices আপডেট করে সেভ করুন
+    await targetCollection.updateOne(
+      { _id: student._id },
+      { $set: { activeDevices: activeDevices } },
+    );
+    console.log(
+      `📱 Device added. Total active devices: ${activeDevices.length}`,
+    );
+    // ═══════════════════════════════════════════════════════
 
     // ═══════════════════════════════════════════════════════
     // ✅ STEP 3: Collect videos (3 sources + fallback)
@@ -6575,9 +6621,7 @@ app.post("/api/recorded-course/login", async (req, res) => {
         courseStr.includes("hadiths");
 
       if (isHadithCourse) {
-        console.log(
-          "⚠️ No videos in batch — using HADITH_40_VIDEOS fallback",
-        );
+        console.log("⚠️ No videos in batch — using HADITH_40_VIDEOS fallback");
         HADITH_40_VIDEOS.forEach((v, i) => {
           videos.push({
             _id: `fallback_hadith_${i}`,
