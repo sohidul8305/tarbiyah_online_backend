@@ -12858,6 +12858,6 @@ process.on("SIGINT", async () => {
 process.on("SIGTERM", async () => {
   console.log("\n🔄 Shutting down gracefully...");
   await closeDB();
-  console.log("✅ Server closed");
+  console.log("✅ Server closedd");
   process.exit(0);
 });
