@@ -117,11 +117,14 @@ app.use(
 
 const DEPARTMENT_COURSES = {
   Elders: [
-    "qaida nuraniyah",
-    "quran nazera",
-    "bakarah hifz", // ← "env" মুছে ফেলুন
+    "qayidah nuraniyah",
+    "qaida nuraniyah", // legacy
+    "najera",
+    "nazera quran", // legacy
     "basic tajweed",
     "basic tajweed (level-1)",
+    "surah baqarah hifz",
+    "bakarah hifz", // legacy
   ],
   "Quran Studies": [
     "qaida nurani",
@@ -2449,6 +2452,132 @@ app.get("/api/seed/recorded-course-batch", (req, res) => {
   }
 });
 
+// =============================================
+// ✅ SEED: Quran for Elders Running Batches
+// GET /api/seed/elders-running-batches
+// একবারই call করবে
+// =============================================
+app.get("/api/seed/elders-running-batches", (req, res) => {
+  try {
+    const data = readBatchesData();
+    if (!data.batches) data.batches = [];
+    const RUNNING_BATCHES = [
+      // ── Qayidah Nuraniyah ──
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Female",
+        days: "Sat & Sun",
+      },
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Male",
+        days: "Sat & Sun",
+      },
+      // ── Najera ──
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Female",
+        days: "Sat, Mon & Wed",
+      },
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Male",
+        days: "Sat, Mon & Wed",
+      },
+      // ── Basic Tajweed ──
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+      // ── Surah Baqarah Hifz ──
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+    ].map((b) => ({
+      name: `${b.base} (${b.gender})`,
+      course: b.course,
+      gender: b.gender,
+      schedule: `${b.days} | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM`,
+      description: `Running batch for ${b.course} (${b.gender} — Quran for Elders)`,
+    }));
+
+    const created = [];
+    const existing = [];
+
+    RUNNING_BATCHES.forEach((rb) => {
+      const found = data.batches.find(
+        (b) =>
+          String(b.name).toLowerCase() === rb.name.toLowerCase() &&
+          String(b.department || "").toLowerCase() === "elders",
+      );
+
+      if (found) {
+        // update to ensure isRunningBatch flag
+        found.isRunningBatch = true;
+        found.status = "Active";
+        found.updatedAt = new Date().toISOString();
+        existing.push(found._id);
+      } else {
+        const newBatch = {
+          _id:
+            "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+          id: Date.now() + Math.random(),
+          name: rb.name,
+          course: rb.course,
+          department: "Elders",
+          gender: rb.gender,
+          students: 0,
+          schedule: rb.schedule,
+          teacher: "",
+          videoUrl: "",
+          videos: [],
+          description: rb.description,
+          status: "Active",
+          isRunningBatch: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        data.batches.push(newBatch);
+        created.push(newBatch._id);
+        console.log(`✅ Elders running batch created: ${rb.name}`);
+      }
+    });
+
+    writeBatchesData(data);
+
+    res.json({
+      success: true,
+      message: `✅ Elders running batches ready. Created: ${created.length}, Existing: ${existing.length}`,
+      created,
+      existing,
+    });
+  } catch (error) {
+    console.error("❌ Seed error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ UPDATE BATCH — safely handles LMS fields, videos, students arrays
 app.put("/api/batches/update/:id", (req, res) => {
   try {
@@ -3102,13 +3231,21 @@ app.post("/api/students/register/student", async (req, res) => {
 
         if (batchStudentsColl) {
           for (const detectedCourse of detectedCourses) {
-            const targetBatch = (batchesData.batches || []).find((b) => {
+            const candidates = (batchesData.batches || []).filter((b) => {
               const bc = String(b.course || "").toLowerCase();
-              const dc = String(detectedCourse).toLowerCase();
+              const bn = String(b.name || "").toLowerCase();
               return (
-                bc.includes(dc.slice(0, 12)) || dc.includes(bc.slice(0, 12))
+                (bc && courseStr.includes(bc.slice(0, 12))) ||
+                (bn && courseStr.includes(bn.slice(0, 12))) ||
+                (bc && bc.includes(courseStr.slice(0, 12)))
               );
             });
+
+            // ✅ Priority: Running Batch → Active → First match
+            const targetBatch =
+              candidates.find((b) => b.isRunningBatch === true) ||
+              candidates.find((b) => b.status === "Active") ||
+              candidates[0];
 
             if (targetBatch) {
               const dup = await batchStudentsColl.findOne({
@@ -3360,21 +3497,148 @@ app.put("/api/students/approve/:id", async (req, res) => {
             `🔄 Synced batch_students: ${bsRecord._id} | Batch: ${bsRecord.batchId}`,
           );
         } else {
-          // ✅ Create new batch_students if not exists
-          // (for students enrolled before the auto-enroll fix)
+          // ═══════════════════════════════════════════════════════════════
+          // ✅ AUTO-CREATE BATCH + ADD STUDENT
+          // 5-level priority match, falls back to creating a new batch
+          // ═══════════════════════════════════════════════════════════════
           const batchesData = readBatchesData();
-          const courseStr = String(student.course || "").toLowerCase();
+          const courseStr = String(student.course || "")
+            .toLowerCase()
+            .trim();
+          const studentBatchType = String(student.batchType || "").trim();
+          const studentGender = String(student.gender || "")
+            .toLowerCase()
+            .trim();
+          const allBatches = batchesData.batches || [];
 
-          const targetBatch = (batchesData.batches || []).find((b) => {
-            const bc = String(b.course || "").toLowerCase();
-            const bn = String(b.name || "").toLowerCase();
-            return (
-              (bc && courseStr.includes(bc.slice(0, 12))) ||
-              (bn && courseStr.includes(bn.slice(0, 12))) ||
-              (bc && bc.includes(courseStr.slice(0, 12)))
+          // ── PRIORITY 1: exact batchType name match ──
+          let targetBatch = studentBatchType
+            ? allBatches.find(
+                (b) =>
+                  String(b.name || "")
+                    .trim()
+                    .toLowerCase() === studentBatchType.toLowerCase(),
+              )
+            : null;
+
+          // ── PRIORITY 2: same course + same gender suffix ──
+          if (!targetBatch && courseStr && studentGender) {
+            targetBatch = allBatches.find((b) => {
+              const bCourse = String(b.course || "")
+                .toLowerCase()
+                .trim();
+              const bName = String(b.name || "").toLowerCase();
+              const courseMatch =
+                (bCourse && courseStr.includes(bCourse.slice(0, 12))) ||
+                (bCourse && bCourse.includes(courseStr.slice(0, 12)));
+              if (!courseMatch) return false;
+              if (studentGender === "female" && bName.includes("(female)"))
+                return true;
+              if (studentGender === "male" && bName.includes("(male)"))
+                return true;
+              return false;
+            });
+          }
+
+          // ── PRIORITY 3: any RUNNING batch of this course ──
+          if (!targetBatch && courseStr) {
+            targetBatch = allBatches.find((b) => {
+              if (!b.isRunningBatch) return false;
+              const bCourse = String(b.course || "")
+                .toLowerCase()
+                .trim();
+              return (
+                (bCourse && courseStr.includes(bCourse.slice(0, 12))) ||
+                (bCourse && bCourse.includes(courseStr.slice(0, 12)))
+              );
+            });
+          }
+
+          // ── PRIORITY 4: any ACTIVE batch of this course ──
+          if (!targetBatch && courseStr) {
+            targetBatch = allBatches.find((b) => {
+              if (b.status !== "Active") return false;
+              const bCourse = String(b.course || "")
+                .toLowerCase()
+                .trim();
+              return (
+                (bCourse && courseStr.includes(bCourse.slice(0, 12))) ||
+                (bCourse && bCourse.includes(courseStr.slice(0, 12)))
+              );
+            });
+          }
+
+          // 🆕 PRIORITY 5: AUTO-CREATE NEW BATCH
+          if (!targetBatch) {
+            const courseName = student.course || "General";
+            const deptName = student.department || "Elders";
+            const genderLabel =
+              studentGender === "female"
+                ? "Female"
+                : studentGender === "male"
+                  ? "Male"
+                  : "Mixed";
+
+            // ✅ Use form-saved batchType name (e.g. "Qayidah Nuraniyah Batch-03 (Female)")
+            //    Otherwise generate "{Course} Batch-01 ({Gender})"
+            let batchName;
+            if (studentBatchType) {
+              batchName = studentBatchType;
+            } else {
+              const sameCourseBatches = allBatches.filter((b) => {
+                const bCourse = String(b.course || "").toLowerCase();
+                return (
+                  courseStr &&
+                  (bCourse.includes(courseStr.slice(0, 12)) ||
+                    courseStr.includes(bCourse.slice(0, 12)))
+                );
+              });
+              const nextNum = String(sameCourseBatches.length + 1).padStart(
+                2,
+                "0",
+              );
+              batchName = `${courseName} Batch-${nextNum} (${genderLabel})`;
+            }
+
+            const newBatch = {
+              _id:
+                "AUTO_" +
+                Date.now() +
+                "_" +
+                Math.random().toString(36).slice(2, 7),
+              id: Date.now() + Math.random(),
+              name: batchName,
+              course: courseName,
+              department: deptName,
+              gender:
+                studentGender === "female"
+                  ? "Female"
+                  : studentGender === "male"
+                    ? "Male"
+                    : "",
+              students: 0,
+              schedule: student.batchSchedule || "",
+              teacher: "",
+              videoUrl: "",
+              videos: [],
+              description: `Auto-created for ${courseName}`,
+              status: "Active",
+              isRunningBatch: true,
+              isAutoCreated: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+
+            batchesData.batches.push(newBatch);
+            writeBatchesData(batchesData);
+            targetBatch = newBatch;
+
+            console.log(
+              `🆕 AUTO-CREATED BATCH: "${batchName}" | Dept: ${deptName}`,
             );
-          });
+          }
 
+          // ── Add student to batch_students + sync count ──
           if (targetBatch) {
             await bsColl.insertOne({
               batchId: String(targetBatch._id),
@@ -3384,24 +3648,34 @@ app.put("/api/students/approve/:id", async (req, res) => {
               phone: student.phone || "",
               course: targetBatch.course || student.course || "",
               department:
-                student.department || targetBatch.department || "Diploma",
+                student.department || targetBatch.department || "Elders",
               password: password.trim(),
-              scholarshipAmount: 0,
+              scholarshipAmount: Number(student.scholarshipAmount) || 0,
               courseFee: Number(student.courseFee) || 1000,
               paidAmount: Number(student.paidAmount) || 0,
-              dueAmount: 0,
-              paymentStatus: "Paid",
+              dueAmount: Number(student.dueAmount) || 0,
+              paymentStatus: student.paymentStatus || "Paid",
               status: "Active",
               admissionDate: student.admissionDate || new Date().toISOString(),
               createdAt: new Date(),
               updatedAt: new Date(),
             });
-            console.log(
-              `🆕 Created batch_students: ${student.name} → ${targetBatch.name}`,
+
+            // ✅ Sync batch.students count
+            const updatedCount = await bsColl.countDocuments({
+              batchId: String(targetBatch._id),
+            });
+            const bIdx = batchesData.batches.findIndex(
+              (b) => String(b._id) === String(targetBatch._id),
             );
-          } else {
-            console.warn(
-              `⚠️ No matching batch found for course: "${student.course}"`,
+            if (bIdx !== -1) {
+              batchesData.batches[bIdx].students = updatedCount;
+              batchesData.batches[bIdx].updatedAt = new Date().toISOString();
+              writeBatchesData(batchesData);
+            }
+
+            console.log(
+              `✅ ${student.name} → Batch "${targetBatch.name}" | Total students: ${updatedCount}`,
             );
           }
         }
@@ -10969,6 +11243,123 @@ app.delete("/api/invoices/delete/:id", async (req, res) => {
 
 // Line ~26 এর কাছাকাছি (app.use(cors(...)) এর পরে)
 
+// =============================================
+// ✅ AUTO-SEED: Elders Running Batches
+// Server start হলেই auto-create হবে
+// =============================================
+function autoSeedEldersBatches() {
+  try {
+    const data = readBatchesData();
+    if (!data.batches) data.batches = [];
+
+    const RUNNING_BATCHES = [
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Female",
+        days: "Sat & Sun",
+      },
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Male",
+        days: "Sat & Sun",
+      },
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Female",
+        days: "Sat, Mon & Wed",
+      },
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Male",
+        days: "Sat, Mon & Wed",
+      },
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+    ].map((b) => ({
+      name: `${b.base} (${b.gender})`,
+      course: b.course,
+      gender: b.gender,
+      schedule: `${b.days} | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM`,
+      description: `Running batch for ${b.course} (${b.gender} — Quran for Elders)`,
+    }));
+
+    let createdCount = 0;
+    let existingCount = 0;
+
+    RUNNING_BATCHES.forEach((rb) => {
+      const found = data.batches.find(
+        (b) =>
+          String(b.name).toLowerCase() === rb.name.toLowerCase() &&
+          String(b.department || "").toLowerCase() === "elders",
+      );
+
+      if (found) {
+        found.isRunningBatch = true;
+        if (found.status !== "Active") found.status = "Active";
+        existingCount++;
+      } else {
+        data.batches.push({
+          _id:
+            "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+          id: Date.now() + Math.random(),
+          name: rb.name,
+          course: rb.course,
+          department: "Elders",
+          gender: rb.gender,
+          students: 0,
+          schedule: rb.schedule,
+          teacher: "",
+          videoUrl: "",
+          videos: [],
+          description: rb.description,
+          status: "Active",
+          isRunningBatch: true,
+          isAutoCreated: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        createdCount++;
+      }
+    });
+
+    if (createdCount > 0) {
+      writeBatchesData(data);
+      console.log(`✅ Auto-seeded ${createdCount} Elders running batches`);
+    } else {
+      console.log(
+        `✅ Elders running batches already ready (${existingCount} existing)`,
+      );
+    }
+  } catch (err) {
+    console.error("❌ Auto-seed error:", err.message);
+  }
+}
 app.use(
   cors({
     origin: "*",
@@ -12796,6 +13187,89 @@ app.use((req, res) => {
   });
 });
 
+// ✅ DIAGNOSTIC: Batch status check
+app.get("/api/debug/batch-diagnosis", (req, res) => {
+  try {
+    const { department } = req.query;
+    const data = readBatchesData();
+    const allBatches = data.batches || [];
+
+    const eldersBatches = allBatches.filter(
+      (b) => String(b.department || "").toLowerCase() === "elders",
+    );
+    const runningBatches = allBatches.filter((b) => b.isRunningBatch === true);
+
+    const filtered =
+      department && department !== "All"
+        ? allBatches.filter((b) => batchMatchesDepartment(b, department))
+        : allBatches;
+
+    res.json({
+      success: true,
+      totalBatchesInFile: allBatches.length,
+      eldersBatches: eldersBatches.length,
+      runningBatches: runningBatches.length,
+      matchedWithFilter: filtered.length,
+      filterDepartment: department || "All",
+      batchList: allBatches.map((b) => ({
+        name: b.name,
+        course: b.course,
+        department: b.department,
+        isRunningBatch: b.isRunningBatch || false,
+        isAutoCreated: b.isAutoCreated || false,
+        status: b.status,
+        students: b.students || 0,
+      })),
+      diagnostics: {
+        seedCalled: eldersBatches.length > 0 ? "✅ YES" : "❌ NO",
+        hasRunningBatches:
+          runningBatches.length > 0
+            ? `✅ ${runningBatches.length} running`
+            : "❌ NONE",
+        departmentMatch:
+          filtered.length > 0 ? `✅ ${filtered.length} match` : "❌ NONE",
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ DEBUG: Every batch with its students
+app.get("/api/debug/batches-with-students", async (req, res) => {
+  try {
+    const batchesData = readBatchesData();
+    const bsColl = getCollection("batch_students");
+
+    const result = [];
+
+    for (const batch of batchesData.batches || []) {
+      const students = bsColl
+        ? await bsColl
+            .find({ batchId: String(batch._id) })
+            .project({ name: 1, studentId: 1, gender: 1 })
+            .toArray()
+        : [];
+
+      result.push({
+        batchId: batch._id,
+        batchName: batch.name,
+        course: batch.course,
+        department: batch.department,
+        isRunningBatch: batch.isRunningBatch || false,
+        isAutoCreated: batch.isAutoCreated || false,
+        storedCount: batch.students || 0,
+        actualStudentsInDb: students.length,
+        students,
+      });
+    }
+
+    res.json({ success: true, totalBatches: result.length, batches: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ ERROR HANDLER
 app.use(errorHandler);
 app.use(errorHandler);
@@ -12819,6 +13293,22 @@ const startServer = async () => {
   try {
     console.log("⏳ Connecting to MongoDB...");
     await connectDB();
+    const startServer = async () => {
+      try {
+        console.log("⏳ Connecting to MongoDB...");
+        await connectDB();
+
+        // ✅ AUTO-SEED on server start
+        autoSeedEldersBatches();
+
+        app.listen(PORT, () => {
+          // ... existing code
+        });
+      } catch (error) {
+        console.error("❌ Failed to start server:", error.message);
+        process.exit(1);
+      }
+    };
 
     app.listen(PORT, () => {
       console.log(`\n🚀 Server running on port ${PORT}`);
