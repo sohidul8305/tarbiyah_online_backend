@@ -12702,6 +12702,139 @@ app.delete("/api/teacher-schedule/delete/:id", (req, res) => {
 });
 // ═══════════════════════════════════════════════════════════
 
+// ✅ Sync Admission Students to batch_students (One-time fix)
+app.get("/api/migrate/sync-admission-students", async (req, res) => {
+  try {
+    const studentsColl = getCollection("students");
+    const bsColl = getCollection("batch_students");
+    if (!studentsColl || !bsColl)
+      return res.status(500).json({ success: false, message: "DB error" });
+
+    const students = await studentsColl.find({}).toArray(); // Get all students
+    let enrolledCount = 0;
+    let notFoundCount = 0;
+
+    for (const student of students) {
+      // ১. চেক করা স্টুডেন্ট আগে থেকেই batch_students এ আছে কিনা
+      const existing = await bsColl.findOne({
+        $or: [
+          { studentDbId: String(student._id) },
+          { phone: student.phone },
+          { studentId: student.studentId },
+        ].filter(Boolean),
+      });
+
+      if (existing) continue;
+
+      const data = readBatchesData();
+
+      // ২. ডিপার্টমেন্ট, কোর্স এবং জেন্ডার দিয়ে সঠিক ব্যাচ খোঁজা
+      let targetBatch = data.batches.find(
+        (b) =>
+          String(b.department || "").toLowerCase() ===
+            String(student.department || "").toLowerCase() &&
+          String(b.name || "").toLowerCase() ===
+            String(student.batchType || "").toLowerCase(),
+      );
+
+      if (!targetBatch) {
+        const gender = student.gender
+          ? student.gender.charAt(0).toUpperCase() + student.gender.slice(1)
+          : "";
+        targetBatch = data.batches.find(
+          (b) =>
+            String(b.department || "").toLowerCase() ===
+              String(student.department || "").toLowerCase() &&
+            String(b.course || "").toLowerCase() ===
+              String(student.course || "").toLowerCase() &&
+            (String(b.gender || "").toLowerCase() === gender.toLowerCase() ||
+              String(b.name || "").includes(`(${gender})`)),
+        );
+      }
+
+      if (!targetBatch) {
+        notFoundCount++;
+        continue;
+      }
+
+      // ৩. পেমেন্ট ক্যালকুলেশন
+      const fee = Number(student.courseFee) || 0;
+      const scholarship = Number(student.scholarshipAmount) || 0;
+      const paid = Number(student.paidAmount) || 0;
+      const due = Math.max(fee - scholarship - paid, 0);
+
+      // ৪. batch_students এ ইনসার্ট করা
+      const newBatchStudent = {
+        batchId: String(targetBatch._id),
+        studentDbId: String(student._id),
+        name: student.name,
+        studentId:
+          student.studentId ||
+          student.username ||
+          `S-${Date.now().toString().slice(-5)}`,
+        phone: student.phone || "",
+        country: student.country || "BD",
+        course: student.course || targetBatch.course,
+        department: targetBatch.department || student.department,
+        password: student.password || "",
+        scholarshipAmount: scholarship,
+        scholarshipNote: student.scholarshipNote || "",
+        courseFee: fee,
+        monthlyFee: Number(student.monthlyFee) || fee,
+        paidAmount: paid,
+        dueAmount: due,
+        paymentStatus: student.paymentStatus || "Unpaid",
+        paymentMethod: student.paymentMethod || "",
+        transactionId: student.transactionId || "",
+        notes: student.notes || "",
+        admissionDate: student.admissionDate || new Date().toISOString(),
+        status: "Active",
+        paidMonths:
+          paid > 0
+            ? [
+                {
+                  _id: "pay_" + Date.now(),
+                  month: new Date().toISOString().slice(0, 7),
+                  amount: paid,
+                  method: student.paymentMethod || "Cash",
+                  note: "Initial payment",
+                  paidAt: new Date().toISOString(),
+                },
+              ]
+            : [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      await bsColl.insertOne(newBatchStudent);
+      enrolledCount++;
+    }
+
+    // ৫. batches.json এর student কাউন্ট আপডেট করা
+    const allBatchStudents = await bsColl.find({}).toArray();
+    const countMap = {};
+    allBatchStudents.forEach((bs) => {
+      const bid = String(bs.batchId);
+      countMap[bid] = (countMap[bid] || 0) + 1;
+    });
+    const batchesData = readBatchesData();
+    (batchesData.batches || []).forEach((b) => {
+      b.students = countMap[String(b._id)] || 0;
+    });
+    writeBatchesData(batchesData);
+
+    res.json({
+      success: true,
+      message: `✅ সফলভাবে ${enrolledCount} জন স্টুডেন্ট ব্যাচে যুক্ত হয়েছে।`,
+      alreadyEnrolled: students.length - enrolledCount - notFoundCount,
+      notMatched: notFoundCount,
+    });
+  } catch (error) {
+    console.error("Sync error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ 404 HANDLER (এটি ফাইলের একদম শেষে থাকতে হবে)
 app.use((req, res) => {
   res.status(404).json({
