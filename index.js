@@ -471,8 +471,7 @@ function autoSeedEldersBatches() {
     const data = readBatchesData();
     if (!data.batches) data.batches = [];
 
-    // ✅ প্রতিটি course-এর সব alias — পুরনো batch ধরার জন্য
-    const SEED = [
+    const SEED_BASE = [
       {
         name: "Qayidah Nuraniyah Batch-03",
         course: "Qayidah Nuraniyah",
@@ -525,79 +524,220 @@ function autoSeedEldersBatches() {
     let createdCount = 0;
     let dedupedCount = 0;
 
-    SEED.forEach((rb) => {
-      // ✅ এই course-এর সাথে match করা সব Elders batch খুঁজো
-      const matches = data.batches.filter((b) => {
-        const bDept = String(b.department || "")
-          .toLowerCase()
-          .trim();
-        if (bDept !== "elders") return false;
+    SEED_BASE.forEach((rb) => {
+      ["Male", "Female"].forEach((gender) => {
+        const batchNameWithGender = `${rb.name} (${gender})`;
 
-        const bCourse = String(b.course || "")
-          .toLowerCase()
-          .trim();
-        return rb.aliases.some(
-          (alias) =>
-            bCourse === alias ||
-            bCourse.includes(alias) ||
-            alias.includes(bCourse),
-        );
-      });
+        const matches = data.batches.filter((b) => {
+          const bDept = String(b.department || "")
+            .toLowerCase()
+            .trim();
+          if (bDept !== "elders") return false;
 
-      if (matches.length === 0) {
-        // কোনো batch নেই → নতুন তৈরি
-        data.batches.push({
-          _id:
-            "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
-          id: Date.now() + Math.random(),
-          name: rb.name,
-          course: rb.course,
-          department: "Elders",
-          students: 0,
-          schedule: rb.schedule,
-          teacher: "",
-          videoUrl: "",
-          videos: [],
-          description: `Running batch for ${rb.course} (Quran for Elders)`,
-          status: "Active",
-          isRunningBatch: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          const bCourse = String(b.course || "")
+            .toLowerCase()
+            .trim();
+          const courseMatch = rb.aliases.some(
+            (alias) =>
+              bCourse === alias ||
+              bCourse.includes(alias) ||
+              alias.includes(bCourse),
+          );
+          if (!courseMatch) return false;
+
+          const bName = String(b.name || "").toLowerCase();
+          const bGender = String(b.gender || "").toLowerCase();
+
+          if (
+            bGender === gender.toLowerCase() ||
+            bName.includes(`(${gender.toLowerCase()})`)
+          ) {
+            return true;
+          }
+          return false;
         });
-        createdCount++;
-      } else if (matches.length > 1) {
-        // একাধিক পাওয়া গেছে → প্রথমটা রাখো, বাকিগুলো ডিলিট
-        const keepId = matches[0]._id;
-        data.batches = data.batches.filter(
-          (b) => b._id === keepId || !matches.some((m) => m._id === b._id),
-        );
-        dedupedCount += matches.length - 1;
 
-        // রাখা batch-টা ঠিক করো
-        const kept = data.batches.find((b) => b._id === keepId);
-        if (kept) {
-          kept.name = rb.name;
-          kept.course = rb.course;
-          kept.isRunningBatch = true;
-          kept.status = "Active";
+        if (matches.length === 0) {
+          data.batches.push({
+            _id:
+              "ELD_" +
+              Date.now() +
+              "_" +
+              Math.random().toString(36).slice(2, 7) +
+              "_" +
+              gender.charAt(0),
+            id: Date.now() + Math.random(),
+            name: batchNameWithGender,
+            course: rb.course,
+            department: "Elders",
+            gender: gender,
+            students: 0,
+            schedule: rb.schedule,
+            teacher: "",
+            videos: [],
+            description: `Running batch for ${rb.course} (${gender} — Quran for Elders)`,
+            status: "Active",
+            isRunningBatch: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+          createdCount++;
+        } else if (matches.length > 1) {
+          const keepId = matches[0]._id;
+          data.batches = data.batches.filter(
+            (b) => b._id === keepId || !matches.some((m) => m._id === b._id),
+          );
+          dedupedCount += matches.length - 1;
+
+          const kept = data.batches.find((b) => b._id === keepId);
+          if (kept) {
+            kept.name = batchNameWithGender;
+            kept.course = rb.course;
+            kept.gender = gender;
+            kept.isRunningBatch = true;
+            kept.status = "Active";
+          }
+        } else {
+          matches[0].name = batchNameWithGender;
+          matches[0].course = rb.course;
+          matches[0].gender = gender;
+          matches[0].isRunningBatch = true;
+          matches[0].status = "Active";
         }
-      } else {
-        // ঠিক ১টা আছে → ঠিক করে দাও
-        matches[0].name = rb.name;
-        matches[0].course = rb.course;
-        matches[0].isRunningBatch = true;
-        matches[0].status = "Active";
-      }
+      });
     });
 
     if (createdCount > 0 || dedupedCount > 0) {
       writeBatchesData(data);
       console.log(
-        `✅ Auto-seed: Created ${createdCount}, Removed duplicates ${dedupedCount}`,
+        `✅ Auto-seed: Created ${createdCount} gender-specific batches, Removed duplicates ${dedupedCount}`,
       );
     }
   } catch (err) {
     console.error("❌ Auto-seed error:", err.message);
+  }
+}
+
+// ✅ autoSeedEldersBatches() এর ঠিক নিচে এটি বসান
+// ✅ autoSeedEldersBatches() এর ঠিক নিচে এটি বসান (গ্লোবালি)
+
+async function autoEnrollElderStudent(student) {
+  try {
+    if (!student || !student.department) return;
+    const deptLower = String(student.department).toLowerCase();
+    if (!deptLower.includes("elder")) return;
+
+    const bsColl = getCollection("batch_students");
+    if (!bsColl) return;
+
+    // ১. স্টুডেন্ট আগে থেকেই ব্যাচে আছে কিনা চেক করা
+    const existing = await bsColl.findOne({
+      $or: [
+        { studentDbId: String(student._id) },
+        { phone: student.phone },
+        { studentId: student.studentId },
+      ].filter(Boolean),
+    });
+
+    if (existing) {
+      console.log("⚠️ Student already enrolled in batch:", student.name);
+      return;
+    }
+
+    const data = readBatchesData();
+    if (!data.batches) data.batches = [];
+
+    // ২. ফ্রন্টএন্ড থেকে পাঠানো batchType দিয়ে ব্যাচ খোঁজা
+    let targetBatch = data.batches.find(
+      (b) =>
+        String(b.department || "").toLowerCase() === "elders" &&
+        String(b.name || "").toLowerCase() ===
+          String(student.batchType || "").toLowerCase(),
+    );
+
+    // ৩. যদি batchType না মেলে, তবে Course এবং Gender দিয়ে ফ্যালব্যাক ম্যাচিং
+    if (!targetBatch) {
+      const gender = student.gender
+        ? student.gender.charAt(0).toUpperCase() + student.gender.slice(1)
+        : "";
+      targetBatch = data.batches.find(
+        (b) =>
+          String(b.department || "").toLowerCase() === "elders" &&
+          String(b.course || "").toLowerCase() ===
+            String(student.course || "").toLowerCase() &&
+          (String(b.gender || "").toLowerCase() === gender.toLowerCase() ||
+            String(b.name || "").includes(`(${gender})`)),
+      );
+    }
+
+    if (!targetBatch) {
+      console.log(
+        "❌ No matching batch found for:",
+        student.name,
+        "| BatchType:",
+        student.batchType,
+      );
+      return;
+    }
+
+    // ৪. পেমেন্ট ক্যালকুলেশন
+    const fee = Number(student.courseFee) || 0;
+    const scholarship = Number(student.scholarshipAmount) || 0;
+    const paid = Number(student.paidAmount) || 0;
+    const due = Math.max(fee - scholarship - paid, 0);
+
+    // ৫. batch_students কালেকশনে ডাটা ইনসার্ট করা
+    const newBatchStudent = {
+      batchId: String(targetBatch._id), // ⬅️ এই batchId টাই LMS-এ ম্যাচ করতে হবে
+      studentDbId: String(student._id),
+      name: student.name,
+      studentId: student.studentId || `S-${Date.now().toString().slice(-5)}`,
+      phone: student.phone || "",
+      country: student.country || "BD",
+      course: student.course || targetBatch.course,
+      department: "Elders",
+      password: student.password || "",
+      scholarshipAmount: scholarship,
+      scholarshipNote: student.scholarshipNote || "",
+      courseFee: fee,
+      monthlyFee: Number(student.monthlyFee) || fee,
+      paidAmount: paid,
+      dueAmount: due,
+      paymentStatus: student.paymentStatus || "Unpaid",
+      paymentMethod: student.paymentMethod || "",
+      transactionId: student.transactionId || "",
+      notes: student.notes || "",
+      admissionDate: student.admissionDate || new Date().toISOString(),
+      status: "Active",
+      paidMonths:
+        paid > 0
+          ? [
+              {
+                _id: "pay_" + Date.now(),
+                month: new Date().toISOString().slice(0, 7),
+                amount: paid,
+                method: student.paymentMethod || "Cash",
+                note: "Initial payment",
+                paidAt: new Date().toISOString(),
+              },
+            ]
+          : [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await bsColl.insertOne(newBatchStudent);
+
+    // ৬. batches.json-এ স্টুডেন্ট কাউন্ট আপডেট করা
+    targetBatch.students = (targetBatch.students || 0) + 1;
+    targetBatch.updatedAt = new Date().toISOString();
+    writeBatchesData(data);
+
+    console.log(
+      `✅ Auto-enrolled ${student.name} in ${targetBatch.name} (ID: ${targetBatch._id})`,
+    );
+  } catch (err) {
+    console.error("❌ Auto enroll elder student error:", err);
   }
 }
 // ✅ Extra helpers (future-proof, no crash)
@@ -1526,6 +1666,7 @@ app.post("/api/payment/sslcommerz/initiate", async (req, res) => {
 app.post("/api/payment/sslcommerz/success", async (req, res) => {
   try {
     const { val_id, tran_id, amount } = req.body;
+
     console.log("════════════════════════════════════════");
     console.log("✅ Payment Success Callback:", tran_id);
     console.log("📦 Body:", { val_id, tran_id, amount });
@@ -2557,90 +2698,6 @@ app.post("/api/batches/create", (req, res) => {
   }
 });
 
-// ✅ NEW: Clean old 8 batches and create exactly 4
-// ✅ FORCE RESET — সব পুরনো Elders batch মুছে ফেলে শুধু ৪টা বানায়
-app.get("/api/seed/elders-running-batches", (req, res) => {
-  try {
-    const data = readBatchesData();
-    if (!data.batches) data.batches = [];
-
-    // ✅ সব possible alias — যেকোনো variation ধরবে
-    const TARGET_KEYWORDS = [
-      "qayidah nuraniyah",
-      "qaida nuraniyah",
-      "qaidah nuraniyah",
-      "qaida nooraniya",
-      "qayidah nuraniya",
-      "najera",
-      "najerah",
-      "nazera quran",
-      "nazera",
-      "tajweed",
-      "surah baqarah hifz",
-      "bakarah hifz",
-      "baqarah hifz",
-    ];
-
-    const initialCount = data.batches.length;
-
-    // ✅ Delete: department=elders OR course/name এই ৪ course-এর যেকোনোটা match করে
-    data.batches = data.batches.filter((b) => {
-      const bDept = String(b.department || "")
-        .toLowerCase()
-        .trim();
-      const bCourse = String(b.course || "")
-        .toLowerCase()
-        .trim();
-      const bName = String(b.name || "")
-        .toLowerCase()
-        .trim();
-
-      // Department Elders হলে delete
-      if (bDept === "elders") return false;
-
-      // Course/Name target keyword মিললে delete
-      const isTarget = TARGET_KEYWORDS.some(
-        (kw) =>
-          bCourse === kw ||
-          bCourse.includes(kw) ||
-          kw.includes(bCourse) ||
-          bName.includes(kw),
-      );
-      return !isTarget;
-    });
-
-    writeBatchesData(data);
-    const deletedCount = initialCount - data.batches.length;
-
-    // ✅ এখন ৪টা fresh batch তৈরি করো
-    autoSeedEldersBatches();
-
-    // ✅ Verify
-    const newData = readBatchesData();
-    const newEldersBatches = (newData.batches || []).filter(
-      (b) => String(b.department || "").toLowerCase() === "elders",
-    );
-
-    res.json({
-      success: true,
-      message: `✅ ${deletedCount}টি পুরনো batch ডিলিট, ${newEldersBatches.length}টি নতুন তৈরি`,
-      deletedCount,
-      createdCount: newEldersBatches.length,
-      totalBatchesInDB: (newData.batches || []).length,
-      eldersBatches: newEldersBatches.map((b) => ({
-        name: b.name,
-        course: b.course,
-        department: b.department,
-        students: b.students || 0,
-        isRunningBatch: b.isRunningBatch || false,
-      })),
-    });
-  } catch (error) {
-    console.error("❌ Seed error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
 // =============================================
 // ✅ SEED: Recorded Course Batch (একবারই কল করবেন)
 // GET /api/seed/recorded-course-batch
@@ -3202,39 +3259,16 @@ app.get("/api/students/all", async (req, res) => {
 app.post("/api/students/register/student", async (req, res) => {
   try {
     console.log("📥 POST /api/students/register/student");
-    console.log("📝 Body:", req.body);
-
     const {
       name,
       email,
       phone,
       password,
       course,
-      presentAddress,
-      permanentAddress,
-      dobOrNid,
-      guardianName,
-      guardianPhone,
-      fatherName,
-      motherName,
-      gender,
-      occupation,
-      maritalStatus,
-      age,
-      paymentMethod,
-      paymentType,
-      transactionId,
-      paidAmount,
-      paymentRemarks,
-      paymentStatus,
-      status = "Pending",
-      admissionDate,
+      department,
       batchType,
       batchSchedule,
-      studentImage,
-      paymentScreenshot,
-      studentId,
-      department,
+      gender /* ... অন্যান্য ফিল্ড */,
     } = req.body;
 
     if (!name || !email || !phone || !password || !course) {
@@ -3244,11 +3278,12 @@ app.post("/api/students/register/student", async (req, res) => {
       });
     }
 
+    // ❌ ভুল লাইনটি এখান থেকে সরিয়ে দেওয়া হয়েছে: newStudent._id = result.insertedId;
+
     if (phone.length < 11) {
-      return res.status(400).json({
-        success: false,
-        message: "ফোন নম্বরটি ১১ ডিজিটের হতে হবে!",
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: "ফোন নম্বরটি ১১ ডিজিটের হতে হবে!" });
     }
 
     const studentsCollection = getCollection("students");
@@ -3264,96 +3299,22 @@ app.post("/api/students/register/student", async (req, res) => {
       });
     }
 
-    // ============================================================
-    // ✅ AUTO-CREATE COURSES in courses.json
-    // ============================================================
-    const courseNames = String(course)
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const coursesData = readData();
-    const enrolledIds = [];
+    // ... আপনার কোর্স অটো-ক্রিয়েট করার লজিক এখানে থাকবে ...
 
-    courseNames.forEach((courseName) => {
-      let existingCourse = coursesData.courses.find(
-        (c) =>
-          (c.title || "").toLowerCase() === courseName.toLowerCase() ||
-          (c.code || "").toLowerCase() === courseName.toLowerCase(),
-      );
-
-      if (!existingCourse) {
-        const newCourseId =
-          Date.now().toString() + Math.floor(Math.random() * 1000);
-        existingCourse = {
-          _id: newCourseId,
-          title: courseName,
-          code: courseName
-            .substring(0, 8)
-            .toUpperCase()
-            .replace(/[^A-Z0-9]/g, ""),
-          description: `${courseName} course`,
-          category: "Admission Enrolled",
-          department: "General",
-          className: courseName,
-          teacher: "",
-          duration: "",
-          status: "Active",
-          startDate: new Date().toISOString().split("T")[0],
-          endDate: "",
-          schedule: "",
-          students: 1,
-          progress: 0,
-          videos: 0,
-          assignments: 0,
-          quizzes: 0,
-          materials: 0,
-          sessions: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        coursesData.courses.push(existingCourse);
-      }
-      enrolledIds.push(existingCourse._id);
-    });
-    writeData(coursesData);
-
-    // ============================================================
     // ✅ নতুন Student ডকুমেন্ট তৈরি
-    // ============================================================
     const newStudent = {
       name,
       email,
       phone,
       password,
       course,
-      enrolledCourses: enrolledIds,
       department: department || "",
-      presentAddress: presentAddress || "",
-      permanentAddress: permanentAddress || "",
-      dobOrNid: dobOrNid || "",
-      guardianName: guardianName || fatherName || "",
-      guardianPhone: guardianPhone || phone,
-      fatherName: fatherName || "",
-      motherName: motherName || "",
-      gender: gender || "",
-      occupation: occupation || "",
-      maritalStatus: maritalStatus || "",
-      age: age || "",
-      paymentMethod: paymentMethod || "",
-      paymentType: paymentType || "",
-      transactionId: transactionId || "",
-      paidAmount: paidAmount || "",
-      paymentRemarks: paymentRemarks || "",
-      paymentStatus: paymentStatus || "Unpaid",
       batchType: batchType || "",
       batchSchedule: batchSchedule || "",
-      paymentScreenshot: paymentScreenshot || "",
-      status: status || "Pending",
-      admissionDate: admissionDate || new Date().toISOString(),
-      username:
-        "pending_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
-      roll: "",
-      approvedAt: null,
+      gender: gender || "",
+      // ... অন্যান্য ফিল্ড
+      status: "Pending",
+      admissionDate: new Date().toISOString(),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -3361,15 +3322,13 @@ app.post("/api/students/register/student", async (req, res) => {
     const result = await studentsCollection.insertOne(newStudent);
     console.log("✅ Student registered:", result.insertedId);
 
-    // ═══════════════════════════════════════════════════════
-    // ✅ AUTO-ENROLL: Quran for Elders → running batch
-    // ═══════════════════════════════════════════════════════
+    // ✅ এখানে নতুন লাইনটি যোগ করুন:
+    newStudent._id = result.insertedId;
+    await autoEnrollElderStudent(newStudent);
 
-    console.log("📚 With courses:", enrolledIds);
     res.status(201).json({
       success: true,
-      message:
-        "রেজিস্ট্রেশন সফল! অ্যাডমিন approve করার পর আপনি লগইন করতে পারবেন।",
+      message: "রেজিস্ট্রেশন সফল!",
       studentId: result.insertedId,
       student: { ...newStudent, _id: result.insertedId },
     });
@@ -6774,16 +6733,53 @@ app.delete("/api/fees/delete/:id", async (req, res) => {
 // =============================================
 // ✅ GET ALL BATCHES (FIRST ROUTE)
 // ✅ GET ALL BATCHES (FIRST ROUTE)
-app.get("/api/batches/all", (req, res) => {
+// ✅ GET ALL BATCHES (FIRST ROUTE) - With Dynamic Student Count
+app.get("/api/batches/all", async (req, res) => {
   try {
     // ✅ ম্যাজিক ফিক্স: পেজ লোড হলেই চেক করবে ব্যাচ আছে কিনা, না থাকলে তৈরি করবে
     autoSeedEldersBatches();
 
     console.log("📥 GET /api/batches/all");
     const data = readBatchesData();
-    const batches = (data.batches || []).sort(
+    let batches = (data.batches || []).sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     );
+
+    // ✅ নতুন ফিক্স: batch_students কালেকশন থেকে রিয়েল-টাইম student count বের করা
+    const bsColl = getCollection("batch_students");
+    if (bsColl) {
+      const allBatchStudents = await bsColl
+        .find({})
+        .project({ batchId: 1 })
+        .toArray();
+
+      const countMap = {};
+      allBatchStudents.forEach((bs) => {
+        const bid = String(bs.batchId);
+        countMap[bid] = (countMap[bid] || 0) + 1;
+      });
+
+      let needsSave = false;
+      batches = batches.map((b) => {
+        const realCount = countMap[String(b._id)] || 0;
+        if (b.students !== realCount) {
+          b.students = realCount; // রেসপন্সে সঠিক সংখ্যা পাঠানো
+          needsSave = true;
+        }
+        return b;
+      });
+
+      // batches.json ফাইলেও সঠিক সংখ্যা সেভ করে রাখা (যাতে বার বার ভুল না আসে)
+      if (needsSave) {
+        const rawData = readBatchesData();
+        rawData.batches = (rawData.batches || []).map((b) => {
+          const realCount = countMap[String(b._id)] || 0;
+          b.students = realCount;
+          return b;
+        });
+        writeBatchesData(rawData);
+      }
+    }
 
     res.status(200).json({ success: true, total: batches.length, batches });
   } catch (error) {
