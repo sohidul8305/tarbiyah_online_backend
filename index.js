@@ -399,6 +399,236 @@ function writeBatchesData(data) {
   }
 }
 
+// =============================================
+// ✅ AUTO-SEED: Elders Running Batches
+// (idempotent — বার বার call করলেও duplicate হবে না)
+// =============================================
+function autoSeedEldersBatches() {
+  try {
+    const data = readBatchesData();
+    if (!data.batches) data.batches = [];
+
+    const SEED = [
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Female",
+        days: "Sat & Sun",
+      },
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Male",
+        days: "Sat & Sun",
+      },
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Female",
+        days: "Sat, Mon & Wed",
+      },
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Male",
+        days: "Sat, Mon & Wed",
+      },
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+    ].map((b) => ({
+      name: `${b.base} (${b.gender})`,
+      course: b.course,
+      gender: b.gender,
+      schedule: `${b.days} | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM`,
+      description: `Running batch for ${b.course} (${b.gender} — Quran for Elders)`,
+    }));
+
+    let created = 0;
+    let existing = 0;
+
+    SEED.forEach((rb) => {
+      const found = data.batches.find(
+        (b) =>
+          String(b.name || "").toLowerCase() === rb.name.toLowerCase() &&
+          String(b.department || "").toLowerCase() === "elders",
+      );
+
+      if (found) {
+        found.isRunningBatch = true;
+        if (found.status !== "Active") found.status = "Active";
+        existing++;
+      } else {
+        data.batches.push({
+          _id:
+            "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+          id: Date.now() + Math.random(),
+          name: rb.name,
+          course: rb.course,
+          department: "Elders",
+          gender: rb.gender,
+          students: 0,
+          schedule: rb.schedule,
+          teacher: "",
+          videoUrl: "",
+          videos: [],
+          description: rb.description,
+          status: "Active",
+          isRunningBatch: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        created++;
+      }
+    });
+
+    if (created > 0) {
+      writeBatchesData(data);
+      console.log(`✅ Auto-seeded ${created} Elders running batches`);
+    } else {
+      console.log(`✅ Elders batches ready (${existing} existing)`);
+    }
+  } catch (err) {
+    console.error("❌ Auto-seed error:", err.message);
+  }
+}
+
+// =============================================
+// ✅ AUTO-SEED: Elders Running Batches
+// (idempotent — বার বার call করলেও duplicate হবে না)
+// =============================================
+function autoSeedEldersBatches() {
+  try {
+    const data = readBatchesData();
+    if (!data.batches) data.batches = [];
+
+    const SEED = [
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Female",
+        days: "Sat & Sun",
+      },
+      {
+        base: "Qayidah Nuraniyah Batch-03",
+        course: "Qayidah Nuraniyah",
+        gender: "Male",
+        days: "Sat & Sun",
+      },
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Female",
+        days: "Sat, Mon & Wed",
+      },
+      {
+        base: "Najerah Batch-02",
+        course: "Najera",
+        gender: "Male",
+        days: "Sat, Mon & Wed",
+      },
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Tajweed Batch-06",
+        course: "Basic Tajweed",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Female",
+        days: "Sun & Tue",
+      },
+      {
+        base: "Surah Baqarah Hifz Batch-02",
+        course: "Surah Baqarah Hifz",
+        gender: "Male",
+        days: "Sun & Tue",
+      },
+    ].map((b) => ({
+      name: `${b.base} (${b.gender})`,
+      course: b.course,
+      gender: b.gender,
+      schedule: `${b.days} | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM`,
+      description: `Running batch for ${b.course} (${b.gender} — Quran for Elders)`,
+    }));
+
+    let created = 0;
+    let existing = 0;
+
+    SEED.forEach((rb) => {
+      const found = data.batches.find(
+        (b) =>
+          String(b.name || "").toLowerCase() === rb.name.toLowerCase() &&
+          String(b.department || "").toLowerCase() === "elders",
+      );
+
+      if (found) {
+        found.isRunningBatch = true;
+        if (found.status !== "Active") found.status = "Active";
+        existing++;
+      } else {
+        data.batches.push({
+          _id:
+            "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+          id: Date.now() + Math.random(),
+          name: rb.name,
+          course: rb.course,
+          department: "Elders",
+          gender: rb.gender,
+          students: 0,
+          schedule: rb.schedule,
+          teacher: "",
+          videoUrl: "",
+          videos: [],
+          description: rb.description,
+          status: "Active",
+          isRunningBatch: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        created++;
+      }
+    });
+
+    if (created > 0) {
+      writeBatchesData(data);
+      console.log(`✅ Auto-seeded ${created} Elders running batches`);
+    } else {
+      console.log(`✅ Elders batches ready (${existing} existing)`);
+    }
+  } catch (err) {
+    console.error("❌ Auto-seed error:", err.message);
+  }
+}
+
 // ✅ Extra helpers (future-proof, no crash)
 const FIXED_TEACHERS = [];
 const ATT_DATA_FILE = path.join(__dirname, "attendance_data.json");
@@ -6943,12 +7173,32 @@ app.post("/api/recorded-course/login", async (req, res) => {
 });
 app.get("/api/batches/all", (req, res) => {
   try {
-    console.log("📥 GET /api/batches/all");
+    // ✅ ম্যাজিক ফিক্স: পেজ লোড হলেই চেক করবে ব্যাচ আছে কিনা, না থাকলে তৈরি করবে
+    autoSeedEldersBatches();
+
+    const { department } = req.query;
+    console.log("📥 GET /api/batches/all | dept:", department || "All");
+
     const data = readBatchesData();
-    const batches = (data.batches || []).sort(
+    const allBatches = (data.batches || []).sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     );
-    res.status(200).json({ success: true, total: batches.length, batches });
+
+    const batches =
+      department && department !== "All"
+        ? allBatches.filter((b) => batchMatchesDepartment(b, department))
+        : allBatches;
+
+    console.log(
+      `✅ ${batches.length}/${allBatches.length} batches for "${department || "All"}"`,
+    );
+
+    res.status(200).json({
+      success: true,
+      department: department || "All",
+      total: batches.length,
+      batches,
+    });
   } catch (error) {
     console.error("❌ Error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -11252,7 +11502,7 @@ function autoSeedEldersBatches() {
     const data = readBatchesData();
     if (!data.batches) data.batches = [];
 
-    const RUNNING_BATCHES = [
+    const SEED = [
       {
         base: "Qayidah Nuraniyah Batch-03",
         course: "Qayidah Nuraniyah",
@@ -11309,21 +11559,16 @@ function autoSeedEldersBatches() {
       description: `Running batch for ${b.course} (${b.gender} — Quran for Elders)`,
     }));
 
-    let createdCount = 0;
-    let existingCount = 0;
+    let created = 0;
 
-    RUNNING_BATCHES.forEach((rb) => {
+    SEED.forEach((rb) => {
       const found = data.batches.find(
         (b) =>
-          String(b.name).toLowerCase() === rb.name.toLowerCase() &&
+          String(b.name || "").toLowerCase() === rb.name.toLowerCase() &&
           String(b.department || "").toLowerCase() === "elders",
       );
 
-      if (found) {
-        found.isRunningBatch = true;
-        if (found.status !== "Active") found.status = "Active";
-        existingCount++;
-      } else {
+      if (!found) {
         data.batches.push({
           _id:
             "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
@@ -11340,21 +11585,16 @@ function autoSeedEldersBatches() {
           description: rb.description,
           status: "Active",
           isRunningBatch: true,
-          isAutoCreated: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
-        createdCount++;
+        created++;
       }
     });
 
-    if (createdCount > 0) {
+    if (created > 0) {
       writeBatchesData(data);
-      console.log(`✅ Auto-seeded ${createdCount} Elders running batches`);
-    } else {
-      console.log(
-        `✅ Elders running batches already ready (${existingCount} existing)`,
-      );
+      console.log(`✅ Auto-seeded ${created} Elders running batches`);
     }
   } catch (err) {
     console.error("❌ Auto-seed error:", err.message);
@@ -13289,49 +13529,55 @@ console.log("══════════════════════�
 // =============================================
 // ✅ START SERVER
 // =============================================
+// =============================================
+// ✅ START SERVER (FIXED)
+// =============================================
+// =============================================
+// ✅ START SERVER (FIXED)
+// =============================================
 const startServer = async () => {
   try {
     console.log("⏳ Connecting to MongoDB...");
     await connectDB();
-    const startServer = async () => {
-      try {
-        console.log("⏳ Connecting to MongoDB...");
-        await connectDB();
 
-        // ✅ AUTO-SEED on server start
-        autoSeedEldersBatches();
-
-        app.listen(PORT, () => {
-          // ... existing code
-        });
-      } catch (error) {
-        console.error("❌ Failed to start server:", error.message);
-        process.exit(1);
-      }
-    };
+    // ✅ ১. সার্ভার চালু হলেই রানিং ব্যাচ তৈরি হবে
+    autoSeedEldersBatches();
 
     app.listen(PORT, () => {
       console.log(`\n🚀 Server running on port ${PORT}`);
       console.log(`📍 API URL: http://localhost:${PORT}`);
       console.log(`🧪 Test: http://localhost:${PORT}/api/test`);
       console.log(`\n📚 Student Routes (No Auth Required):`);
-
       console.log(`   PUT  http://localhost:${PORT}/api/students/approve/:id`);
       console.log(`   POST http://localhost:${PORT}/api/students/login`);
       console.log(
         `   POST http://localhost:${PORT}/api/students/register/student`,
       );
-      console.log(`\n📚 Teacher Course Routes:`);
-      console.log(`   POST http://localhost:${PORT}/api/courses/create`);
-      console.log(`   GET  http://localhost:${PORT}/api/courses/teacher/:id`);
-      console.log(`   GET  http://localhost:${PORT}/api/courses/stats/:id`);
-      console.log(`\n`);
     });
   } catch (error) {
-    console.error("❌ Failed to start server:", error.messagee);
+    console.error("❌ Failed to start server:", error.message);
     process.exit(1);
   }
 };
+
+startServer();
+
+// ✅ GRACEFUL SHUTDOWN
+process.on("SIGINT", async () => {
+  console.log("\n🔄 Shutting down gracefully...");
+  await closeDB();
+  console.log("✅ Server closed");
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("\n🔄 Shutting down gracefully...");
+  await closeDB();
+  console.log("✅ Server closed");
+  process.exit(0);
+});
+
+startServer();
 
 startServer();
 
