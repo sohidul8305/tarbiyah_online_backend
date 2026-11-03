@@ -8207,6 +8207,8 @@ app.get("/api/batch-students/all", async (req, res) => {
     console.log("📥 GET /api/batch-students/all | batchId:", batchId || "All");
 
     const coll = getCollection("batch_students");
+    const studentsColl = getCollection("students"); // ✅ ফুল ডাটার জন্য
+
     if (!coll) {
       return res.status(500).json({ success: false, message: "DB not found!" });
     }
@@ -8219,9 +8221,29 @@ app.get("/api/batch-students/all", async (req, res) => {
       .sort({ createdAt: -1 })
       .toArray();
 
+    // ✅ নতুন ফিক্স: batch_students এর সাথে students কালেকশনের ফুল ডাটা মার্জ করা
+    const enrichedStudents = await Promise.all(
+      allStudents.map(async (s) => {
+        if (s.studentDbId && studentsColl) {
+          try {
+            const fullData = await studentsColl.findOne({
+              _id: new ObjectId(s.studentDbId),
+            });
+            if (fullData) {
+              // ফুল ডাটা মার্জ করা, তবে _id এবং batchId আগেরটাই থাকবে
+              return { ...fullData, ...s, _id: s._id, batchId: s.batchId };
+            }
+          } catch (e) {
+            console.error("Error fetching full student data:", e);
+          }
+        }
+        return s;
+      }),
+    );
+
     const keywords = getDepartmentKeywords(department);
     const students = keywords
-      ? allStudents.filter((s) => {
+      ? enrichedStudents.filter((s) => {
           const fields = [
             (s.course || "").toLowerCase(),
             (s.department || "").toLowerCase(),
@@ -8230,7 +8252,7 @@ app.get("/api/batch-students/all", async (req, res) => {
             fields.some((f) => f.includes(kw.toLowerCase())),
           );
         })
-      : allStudents;
+      : enrichedStudents;
 
     // ✅ Auto-sync batch.students
     if (batchId) {
