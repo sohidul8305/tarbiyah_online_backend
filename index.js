@@ -471,6 +471,7 @@ function autoSeedEldersBatches() {
     const data = readBatchesData();
     if (!data.batches) data.batches = [];
 
+    // ✅ শুধু এই ৪টি ব্যাচ তৈরি হবে (কোনো Male/Female নেই)
     const SEED = [
       {
         name: "Qayidah Nuraniyah Batch-03",
@@ -497,6 +498,7 @@ function autoSeedEldersBatches() {
     let createdCount = 0;
 
     SEED.forEach((rb) => {
+      // ✅ Name এর বদলে Course দিয়ে চেক করা হচ্ছে (যাতে ডুপ্লিকেট না হয়)
       const found = data.batches.find(
         (b) =>
           String(b.department || "")
@@ -528,8 +530,10 @@ function autoSeedEldersBatches() {
         });
         createdCount++;
       } else {
+        // যদি আগেই থাকে তবে ফ্ল্যাগগুলো আপডেট করে দেবে
         found.isRunningBatch = true;
         found.status = "Active";
+        found.name = rb.name; // ✅ নাম ঠিক করে দিবে
       }
     });
 
@@ -2575,6 +2579,41 @@ app.post("/api/batches/create", (req, res) => {
   }
 });
 
+// ✅ NEW: Clean old 8 batches and create exactly 4
+app.get("/api/seed/elders-running-batches", (req, res) => {
+  try {
+    const data = readBatchesData();
+
+    // ১. আগের সব Elders ব্যাচ (৮টি) ডিলিট করা
+    const initialCount = (data.batches || []).length;
+    data.batches = (data.batches || []).filter(
+      (b) => String(b.department || "").toLowerCase() !== "elders",
+    );
+    writeBatchesData(data);
+    const deletedCount = initialCount - data.batches.length;
+
+    // ২. নতুন করে শুধু ৪টি রানিং ব্যাচ তৈরি করা
+    autoSeedEldersBatches();
+
+    // ৩. নতুন ব্যাচগুলো রেসপন্সে দেখানো
+    const newData = readBatchesData();
+    const newEldersBatches = (newData.batches || []).filter(
+      (b) => String(b.department || "").toLowerCase() === "elders",
+    );
+
+    res.json({
+      success: true,
+      message: `✅ ${deletedCount}টি পুরনো ব্যাচ ডিলিট হয়েছে। নতুন ৪টি রানিং ব্যাচ তৈরি হয়েছে।`,
+      deletedCount: deletedCount,
+      createdCount: newEldersBatches.length,
+      batches: newEldersBatches, // ✅ ৪টি ব্যাচ দেখাবে
+    });
+  } catch (error) {
+    console.error("❌ Seed error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // =============================================
 // ✅ SEED: Recorded Course Batch (একবারই কল করবেন)
 // GET /api/seed/recorded-course-batch
@@ -2664,31 +2703,6 @@ app.get("/api/seed/recorded-course-batch", (req, res) => {
       mulkBatchId: mulkBatch._id,
       created,
       updated,
-    });
-  } catch (error) {
-    console.error("❌ Seed error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// backend/index.js
-app.get("/api/seed/elders-running-batches", (req, res) => {
-  try {
-    // ১. আগের সব এল্ডার্স ব্যাচ ডিলিট করা (যাতে ৮টি পুরনো ব্যাচ মুছে যায়)
-    const data = readBatchesData();
-    const initialCount = (data.batches || []).length;
-    data.batches = (data.batches || []).filter(
-      (b) => String(b.department || "").toLowerCase() !== "elders",
-    );
-    writeBatchesData(data);
-    const deletedCount = initialCount - data.batches.length;
-
-    // ২. নতুন করে শুধু ৪টি রানিং ব্যাচ তৈরি করা
-    autoSeedEldersBatches();
-
-    res.json({
-      success: true,
-      message: `✅ ${deletedCount}টি পুরনো ব্যাচ ডিলিট হয়েছে। নতুন ৪টি রানিং ব্যাচ তৈরি হয়েছে।`,
     });
   } catch (error) {
     console.error("❌ Seed error:", error);
