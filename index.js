@@ -12835,6 +12835,38 @@ app.get("/api/migrate/sync-admission-students", async (req, res) => {
   }
 });
 
+// ✅ আপনার নতুন ডিবাগ রাউট এখানে যোগ করুন (404 হ্যান্ডলারের উপরে)
+app.get("/api/debug/students-details", async (req, res) => {
+  try {
+    const studentsColl = getCollection("students");
+    const students = await studentsColl.find({}).toArray();
+
+    const summary = students.map((s) => ({
+      _id: s._id,
+      name: s.name,
+      department: s.department || "(empty)",
+      course: s.course || "(empty)",
+      gender: s.gender || "(empty)",
+      batchType: s.batchType || "(empty)",
+      status: s.status || "(empty)",
+    }));
+
+    res.json({ success: true, total: students.length, students: summary });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ❌ এই 404 হ্যান্ডলারটি সবার শেষে থাকতে হবে
+app.use((req, res) => {
+  res
+    .status(404)
+    .json({
+      success: false,
+      message: `Route not found: ${req.method} ${req.url}`,
+    });
+});
+
 // ✅ 404 HANDLER (এটি ফাইলের একদম শেষে থাকতে হবে)
 app.use((req, res) => {
   res.status(404).json({
