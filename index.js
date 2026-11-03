@@ -471,45 +471,81 @@ function autoSeedEldersBatches() {
     const data = readBatchesData();
     if (!data.batches) data.batches = [];
 
-    // ✅ শুধু এই ৪টি ব্যাচ তৈরি হবে (কোনো Male/Female নেই)
+    // ✅ প্রতিটি course-এর সব alias — পুরনো batch ধরার জন্য
     const SEED = [
       {
         name: "Qayidah Nuraniyah Batch-03",
         course: "Qayidah Nuraniyah",
+        aliases: [
+          "qayidah nuraniyah",
+          "qaida nuraniyah",
+          "qaidah nuraniyah",
+          "qaida nooraniya",
+          "qayidah nuraniya",
+          "qaidah nooraniya",
+        ],
         schedule: "Sat & Sun | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
       },
       {
         name: "Najerah Batch-02",
         course: "Najera",
+        aliases: [
+          "najera",
+          "najerah",
+          "nazera quran",
+          "nazera",
+          "najera quran",
+        ],
         schedule: "Sat, Mon & Wed | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
       },
       {
         name: "Tajweed Batch-06",
         course: "Basic Tajweed",
+        aliases: [
+          "tajweed",
+          "basic tajweed",
+          "basic tajweed (level-1)",
+          "tajweed basic",
+        ],
         schedule: "Sun & Tue | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
       },
       {
         name: "Surah Baqarah Hifz Batch-02",
         course: "Surah Baqarah Hifz",
+        aliases: [
+          "surah baqarah hifz",
+          "bakarah hifz",
+          "baqarah hifz",
+          "surah bakarah",
+        ],
         schedule: "Sun & Tue | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
       },
     ];
 
     let createdCount = 0;
+    let dedupedCount = 0;
 
     SEED.forEach((rb) => {
-      // ✅ Name এর বদলে Course দিয়ে চেক করা হচ্ছে (যাতে ডুপ্লিকেট না হয়)
-      const found = data.batches.find(
-        (b) =>
-          String(b.department || "")
-            .toLowerCase()
-            .trim() === "elders" &&
-          String(b.course || "")
-            .toLowerCase()
-            .trim() === rb.course.toLowerCase().trim(),
-      );
+      // ✅ এই course-এর সাথে match করা সব Elders batch খুঁজো
+      const matches = data.batches.filter((b) => {
+        const bDept = String(b.department || "")
+          .toLowerCase()
+          .trim();
+        if (bDept !== "elders") return false;
 
-      if (!found) {
+        const bCourse = String(b.course || "")
+          .toLowerCase()
+          .trim();
+        return rb.aliases.some(
+          (alias) =>
+            bCourse === alias ||
+            bCourse.includes(alias) ||
+            alias.includes(bCourse),
+        );
+      });
+
+      if (matches.length === 0) {
+        // কোনো batch নেই → নতুন তৈরি
         data.batches.push({
           _id:
             "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
@@ -529,94 +565,36 @@ function autoSeedEldersBatches() {
           updatedAt: new Date().toISOString(),
         });
         createdCount++;
+      } else if (matches.length > 1) {
+        // একাধিক পাওয়া গেছে → প্রথমটা রাখো, বাকিগুলো ডিলিট
+        const keepId = matches[0]._id;
+        data.batches = data.batches.filter(
+          (b) => b._id === keepId || !matches.some((m) => m._id === b._id),
+        );
+        dedupedCount += matches.length - 1;
+
+        // রাখা batch-টা ঠিক করো
+        const kept = data.batches.find((b) => b._id === keepId);
+        if (kept) {
+          kept.name = rb.name;
+          kept.course = rb.course;
+          kept.isRunningBatch = true;
+          kept.status = "Active";
+        }
       } else {
-        // যদি আগেই থাকে তবে ফ্ল্যাগগুলো আপডেট করে দেবে
-        found.isRunningBatch = true;
-        found.status = "Active";
-        found.name = rb.name; // ✅ নাম ঠিক করে দিবে
+        // ঠিক ১টা আছে → ঠিক করে দাও
+        matches[0].name = rb.name;
+        matches[0].course = rb.course;
+        matches[0].isRunningBatch = true;
+        matches[0].status = "Active";
       }
     });
 
-    if (createdCount > 0) {
+    if (createdCount > 0 || dedupedCount > 0) {
       writeBatchesData(data);
-      console.log(`✅ Auto-seeded ${createdCount} Elders running batches`);
-    }
-  } catch (err) {
-    console.error("❌ Auto-seed error:", err.message);
-  }
-}
-function autoSeedEldersBatches() {
-  try {
-    const data = readBatchesData();
-    if (!data.batches) data.batches = [];
-
-    const SEED = [
-      {
-        name: "Qayidah Nuraniyah Batch-03",
-        course: "Qayidah Nuraniyah",
-        schedule: "Sat & Sun | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
-      },
-      {
-        name: "Najerah Batch-02",
-        course: "Najera",
-        schedule: "Sat, Mon & Wed | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
-      },
-      {
-        name: "Tajweed Batch-06",
-        course: "Basic Tajweed",
-        schedule: "Sun & Tue | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
-      },
-      {
-        name: "Surah Baqarah Hifz Batch-02",
-        course: "Surah Baqarah Hifz",
-        schedule: "Sun & Tue | 6:00–7:30 AM / 3:00–4:30 PM / 8:00–9:30 PM",
-      },
-    ];
-
-    let createdCount = 0;
-
-    SEED.forEach((rb) => {
-      // ✅ Name এর বদলে Course দিয়ে চেক করা হচ্ছে (যাতে ডুপ্লিকেট না হয়)
-      const found = data.batches.find(
-        (b) =>
-          String(b.department || "")
-            .toLowerCase()
-            .trim() === "elders" &&
-          String(b.course || "")
-            .toLowerCase()
-            .trim() === rb.course.toLowerCase().trim(),
+      console.log(
+        `✅ Auto-seed: Created ${createdCount}, Removed duplicates ${dedupedCount}`,
       );
-
-      if (!found) {
-        data.batches.push({
-          _id:
-            "ELD_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
-          id: Date.now() + Math.random(),
-          name: rb.name,
-          course: rb.course,
-          department: "Elders",
-          students: 0,
-          schedule: rb.schedule,
-          teacher: "",
-          videoUrl: "",
-          videos: [],
-          description: `Running batch for ${rb.course} (Quran for Elders)`,
-          status: "Active",
-          isRunningBatch: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        createdCount++;
-      } else {
-        // যদি আগেই থাকে তবে ফ্ল্যাগগুলো আপডেট করে দেবে
-        found.isRunningBatch = true;
-        found.status = "Active";
-      }
-    });
-
-    if (createdCount > 0) {
-      writeBatchesData(data);
-      console.log(`✅ Auto-seeded ${createdCount} Elders running batches`);
     }
   } catch (err) {
     console.error("❌ Auto-seed error:", err.message);
@@ -2580,22 +2558,64 @@ app.post("/api/batches/create", (req, res) => {
 });
 
 // ✅ NEW: Clean old 8 batches and create exactly 4
+// ✅ FORCE RESET — সব পুরনো Elders batch মুছে ফেলে শুধু ৪টা বানায়
 app.get("/api/seed/elders-running-batches", (req, res) => {
   try {
     const data = readBatchesData();
+    if (!data.batches) data.batches = [];
 
-    // ১. আগের সব Elders ব্যাচ (৮টি) ডিলিট করা
-    const initialCount = (data.batches || []).length;
-    data.batches = (data.batches || []).filter(
-      (b) => String(b.department || "").toLowerCase() !== "elders",
-    );
+    // ✅ সব possible alias — যেকোনো variation ধরবে
+    const TARGET_KEYWORDS = [
+      "qayidah nuraniyah",
+      "qaida nuraniyah",
+      "qaidah nuraniyah",
+      "qaida nooraniya",
+      "qayidah nuraniya",
+      "najera",
+      "najerah",
+      "nazera quran",
+      "nazera",
+      "tajweed",
+      "surah baqarah hifz",
+      "bakarah hifz",
+      "baqarah hifz",
+    ];
+
+    const initialCount = data.batches.length;
+
+    // ✅ Delete: department=elders OR course/name এই ৪ course-এর যেকোনোটা match করে
+    data.batches = data.batches.filter((b) => {
+      const bDept = String(b.department || "")
+        .toLowerCase()
+        .trim();
+      const bCourse = String(b.course || "")
+        .toLowerCase()
+        .trim();
+      const bName = String(b.name || "")
+        .toLowerCase()
+        .trim();
+
+      // Department Elders হলে delete
+      if (bDept === "elders") return false;
+
+      // Course/Name target keyword মিললে delete
+      const isTarget = TARGET_KEYWORDS.some(
+        (kw) =>
+          bCourse === kw ||
+          bCourse.includes(kw) ||
+          kw.includes(bCourse) ||
+          bName.includes(kw),
+      );
+      return !isTarget;
+    });
+
     writeBatchesData(data);
     const deletedCount = initialCount - data.batches.length;
 
-    // ২. নতুন করে শুধু ৪টি রানিং ব্যাচ তৈরি করা
+    // ✅ এখন ৪টা fresh batch তৈরি করো
     autoSeedEldersBatches();
 
-    // ৩. নতুন ব্যাচগুলো রেসপন্সে দেখানো
+    // ✅ Verify
     const newData = readBatchesData();
     const newEldersBatches = (newData.batches || []).filter(
       (b) => String(b.department || "").toLowerCase() === "elders",
@@ -2603,10 +2623,17 @@ app.get("/api/seed/elders-running-batches", (req, res) => {
 
     res.json({
       success: true,
-      message: `✅ ${deletedCount}টি পুরনো ব্যাচ ডিলিট হয়েছে। নতুন ৪টি রানিং ব্যাচ তৈরি হয়েছে।`,
-      deletedCount: deletedCount,
+      message: `✅ ${deletedCount}টি পুরনো batch ডিলিট, ${newEldersBatches.length}টি নতুন তৈরি`,
+      deletedCount,
       createdCount: newEldersBatches.length,
-      batches: newEldersBatches, // ✅ ৪টি ব্যাচ দেখাবে
+      totalBatchesInDB: (newData.batches || []).length,
+      eldersBatches: newEldersBatches.map((b) => ({
+        name: b.name,
+        course: b.course,
+        department: b.department,
+        students: b.students || 0,
+        isRunningBatch: b.isRunningBatch || false,
+      })),
     });
   } catch (error) {
     console.error("❌ Seed error:", error);
