@@ -6749,7 +6749,7 @@ app.delete("/api/fees/delete/:id", async (req, res) => {
 app.get("/api/batches/all", async (req, res) => {
   try {
     // ✅ ম্যাজিক ফিক্স: পেজ লোড হলেই চেক করবে ব্যাচ আছে কিনা, না থাকলে তৈরি করবে
-    autoSeedEldersBatches();
+    // autoSeedEldersBatches();
 
     console.log("📥 GET /api/batches/all");
     const data = readBatchesData();
