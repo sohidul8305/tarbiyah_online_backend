@@ -752,6 +752,204 @@ async function autoEnrollElderStudent(student) {
     console.error("❌ Auto enroll error:", err);
   }
 }
+
+// =============================================
+// ✅ AUTO-SEED: Diploma Running Batch (Batch-16)
+// Idempotent — বার বার call করলেও duplicate হবে না
+// =============================================
+function autoSeedDiplomaBatches() {
+  try {
+    const data = readBatchesData();
+    if (!data.batches) data.batches = [];
+
+    const targetName = "Batch-16";
+    const targetSchedule = "Any 3 days/week | 8:00 PM – 10:00 PM";
+
+    // ✅ Check existing Diploma running batch
+    const existing = data.batches.find(
+      (b) =>
+        String(b.department || "").toLowerCase() === "diploma" &&
+        String(b.name || "").toLowerCase() === targetName.toLowerCase(),
+    );
+
+    if (existing) {
+      let changed = false;
+      if (existing.isRunningBatch !== true) {
+        existing.isRunningBatch = true;
+        changed = true;
+      }
+      if (existing.status !== "Active") {
+        existing.status = "Active";
+        changed = true;
+      }
+      if (!existing.schedule || !existing.schedule.includes("8:00 PM")) {
+        existing.schedule = targetSchedule;
+        changed = true;
+      }
+      if (!existing.description || !existing.description.includes("Batch-16")) {
+        existing.description =
+          "Running batch for Diploma in Islamic Studies (Batch-16). Class time: 8:00 PM – 10:00 PM. Class days will be announced in the group.";
+        changed = true;
+      }
+      if (changed) {
+        existing.updatedAt = new Date().toISOString();
+        writeBatchesData(data);
+        console.log("✅ Diploma Batch-16 info updated");
+      }
+      return existing;
+    }
+
+    // ✅ Create new Batch-16
+    const newBatch = {
+      _id: "DIP_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+      id: Date.now() + Math.random(),
+      name: targetName,
+      course: "Diploma in Islamic Studies",
+      department: "Diploma",
+      gender: "All",
+      students: 0,
+      schedule: targetSchedule,
+      teacher: "",
+      videoUrl: "",
+      videos: [],
+      description:
+        "Running batch for Diploma in Islamic Studies (Batch-16). Class time: 8:00 PM – 10:00 PM. Class days will be announced in the group.",
+      status: "Active",
+      isRunningBatch: true,
+      isAutoCreated: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.batches.push(newBatch);
+    writeBatchesData(data);
+    console.log("✅ Diploma Batch-16 auto-created:", newBatch._id);
+    return newBatch;
+  } catch (err) {
+    console.error("❌ Diploma auto-seed error:", err.message);
+    return null;
+  }
+}
+
+// =============================================
+// ✅ AUTO-ENROLL: Diploma student → Batch-16
+// (Elders-এর মতোই, কিন্তু gender-agnostic single batch)
+// =============================================
+async function autoEnrollDiplomaStudent(student) {
+  try {
+    if (!student || !student.course) return;
+
+    // ✅ শুধু "Diploma in Islamic Studies" এর জন্য (recorded courses বাদ)
+    const c = String(student.course).toLowerCase();
+    const isDiplomaCourse =
+      c.includes("diploma in islamic studies") ||
+      c.includes("diploma in islamic");
+
+    if (!isDiplomaCourse) {
+      console.log(
+        "ℹ️ Not a Diploma course, skipping auto-enroll:",
+        student.name,
+      );
+      return;
+    }
+
+    const bsColl = getCollection("batch_students");
+    if (!bsColl) return;
+
+    // ১. Already enrolled কিনা check
+    const existing = await bsColl.findOne({
+      $or: [
+        { studentDbId: String(student._id) },
+        { phone: student.phone },
+        { studentId: student.studentId },
+      ].filter(Boolean),
+    });
+
+    if (existing) {
+      console.log("⚠️ Diploma student already enrolled:", student.name);
+      return;
+    }
+
+    // ২. Batch guarantee — না থাকলে তৈরি
+    autoSeedDiplomaBatches();
+
+    // ৩. Running Diploma batch খুঁজে বের করা
+    const data = readBatchesData();
+    const targetBatch = data.batches.find(
+      (b) =>
+        String(b.department || "").toLowerCase() === "diploma" &&
+        b.isRunningBatch === true,
+    );
+
+    if (!targetBatch) {
+      console.log("❌ No Diploma running batch found for:", student.name);
+      return;
+    }
+
+    // ৪. Payment calculation
+    const fee = Number(student.courseFee) || 0;
+    const scholarship = Number(student.scholarshipAmount) || 0;
+    const paid = Number(student.paidAmount) || 0;
+    const due = Math.max(fee - scholarship - paid, 0);
+
+    // ৫. batch_students-এ insert
+    const newBatchStudent = {
+      batchId: String(targetBatch._id),
+      studentDbId: String(student._id),
+      name: student.name,
+      studentId:
+        student.studentId ||
+        student.username ||
+        `S-${Date.now().toString().slice(-5)}`,
+      phone: student.phone || "",
+      country: student.country || "BD",
+      course: targetBatch.course,
+      department: "Diploma",
+      gender: student.gender || "",
+      password: student.password || "",
+      scholarshipAmount: scholarship,
+      scholarshipNote: student.scholarshipNote || "",
+      courseFee: fee,
+      monthlyFee: Number(student.monthlyFee) || fee,
+      paidAmount: paid,
+      dueAmount: due,
+      paymentStatus: student.paymentStatus || "Unpaid",
+      paymentMethod: student.paymentMethod || "",
+      transactionId: student.transactionId || "",
+      notes: student.notes || "",
+      admissionDate: student.admissionDate || new Date().toISOString(),
+      status: "Active",
+      paidMonths:
+        paid > 0
+          ? [
+              {
+                _id: "pay_" + Date.now(),
+                month: new Date().toISOString().slice(0, 7),
+                amount: paid,
+                method: student.paymentMethod || "Cash",
+                note: "Initial payment",
+                paidAt: new Date().toISOString(),
+              },
+            ]
+          : [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await bsColl.insertOne(newBatchStudent);
+
+    // ৬. Batch student count sync
+    targetBatch.students = (targetBatch.students || 0) + 1;
+    targetBatch.updatedAt = new Date().toISOString();
+    writeBatchesData(data);
+
+    console.log(
+      `✅ Auto-enrolled ${student.name} in ${targetBatch.name} (Diploma)`,
+    );
+  } catch (err) {
+    console.error("❌ Diploma auto-enroll error:", err);
+  }
+}
 // ✅ Extra helpers (future-proof, no crash)
 const FIXED_TEACHERS = [];
 const ATT_DATA_FILE = path.join(__dirname, "attendance_data.json");
@@ -3337,6 +3535,7 @@ app.post("/api/students/register/student", async (req, res) => {
     // ✅ এখানে নতুন লাইনটি যোগ করুন:
     newStudent._id = result.insertedId;
     await autoEnrollElderStudent(newStudent);
+    await autoEnrollDiplomaStudent(newStudent);
 
     res.status(201).json({
       success: true,
@@ -6750,7 +6949,7 @@ app.get("/api/batches/all", async (req, res) => {
   try {
     // ✅ ম্যাজিক ফিক্স: পেজ লোড হলেই চেক করবে ব্যাচ আছে কিনা, না থাকলে তৈরি করবে
     // autoSeedEldersBatches();
-
+    autoSeedDiplomaBatches();
     console.log("📥 GET /api/batches/all");
     const data = readBatchesData();
     let batches = (data.batches || []).sort(
