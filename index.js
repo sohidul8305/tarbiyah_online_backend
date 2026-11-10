@@ -6999,6 +6999,125 @@ app.get("/api/batches/all", async (req, res) => {
   }
 });
 
+// ✅ এক ক্লিকে সব পুরোনো Diploma স্টুডেন্টকে Batch-16 এ যুক্ত করার API
+app.get("/api/migrate/sync-diploma-students", async (req, res) => {
+  try {
+    const studentsColl = getCollection("students");
+    const bsColl = getCollection("batch_students");
+    if (!studentsColl || !bsColl)
+      return res.status(500).json({ success: false, message: "DB error" });
+
+    const students = await studentsColl.find({}).toArray();
+    let enrolledCount = 0;
+
+    // ১. ব্যাচ নিশ্চিত করা
+    autoSeedDiplomaBatches();
+    const data = readBatchesData();
+    const targetBatch = data.batches.find(
+      (b) =>
+        String(b.department || "").toLowerCase() === "diploma" &&
+        b.isRunningBatch === true,
+    );
+
+    if (!targetBatch)
+      return res
+        .status(400)
+        .json({ success: false, message: "Diploma batch not found" });
+
+    // ২. সব স্টুডেন্ট চেক করা
+    for (const student of students) {
+      const c = String(student.course || "").toLowerCase();
+      if (
+        !c.includes("diploma in islamic studies") &&
+        !c.includes("diploma in islamic")
+      )
+        continue;
+
+      // ৩. অলরেডি ব্যাচে আছে কিনা চেক
+      const existing = await bsColl.findOne({
+        batchId: String(targetBatch._id),
+        $or: [
+          { studentDbId: String(student._id) },
+          { phone: student.phone },
+          { studentId: student.studentId },
+        ].filter(Boolean),
+      });
+
+      if (existing) continue;
+
+      // ৪. পেমেন্ট ক্যালকুলেশন ও ইনসার্ট
+      const fee = Number(student.courseFee) || 0;
+      const scholarship = Number(student.scholarshipAmount) || 0;
+      const paid = Number(student.paidAmount) || 0;
+      const due = Math.max(fee - scholarship - paid, 0);
+
+      const newBatchStudent = {
+        batchId: String(targetBatch._id),
+        studentDbId: String(student._id),
+        name: student.name,
+        studentId:
+          student.studentId ||
+          student.username ||
+          `S-${Date.now().toString().slice(-5)}`,
+        phone: student.phone || "",
+        country: student.country || "BD",
+        course: targetBatch.course,
+        department: "Diploma",
+        gender: student.gender || "",
+        password: student.password || "",
+        scholarshipAmount: scholarship,
+        courseFee: fee,
+        monthlyFee: Number(student.monthlyFee) || fee,
+        paidAmount: paid,
+        dueAmount: due,
+        paymentStatus: student.paymentStatus || "Unpaid",
+        paymentMethod: student.paymentMethod || "",
+        transactionId: student.transactionId || "",
+        admissionDate: student.admissionDate || new Date().toISOString(),
+        status: "Active",
+        paidMonths:
+          paid > 0
+            ? [
+                {
+                  _id: "pay_" + Date.now(),
+                  month: new Date().toISOString().slice(0, 7),
+                  amount: paid,
+                  method: student.paymentMethod || "Cash",
+                  note: "Initial payment",
+                  paidAt: new Date().toISOString(),
+                },
+              ]
+            : [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      await bsColl.insertOne(newBatchStudent);
+      enrolledCount++;
+    }
+
+    // ৫. ব্যাচের কাউন্ট আপডেট
+    const totalInBatch = await bsColl.countDocuments({
+      batchId: String(targetBatch._id),
+    });
+    const rawData = readBatchesData();
+    const bIdx = rawData.batches.findIndex(
+      (b) => String(b._id) === String(targetBatch._id),
+    );
+    if (bIdx !== -1) {
+      rawData.batches[bIdx].students = totalInBatch;
+      writeBatchesData(rawData);
+    }
+
+    res.json({
+      success: true,
+      message: `✅ সফলভাবে ${enrolledCount} জন Diploma স্টুডেন্টকে ${targetBatch.name}-এ যুক্ত করা হয়েছে।`,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ CREATE BATCH
 app.post("/api/batches/create", (req, res) => {
   try {
