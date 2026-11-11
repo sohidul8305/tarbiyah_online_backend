@@ -632,7 +632,7 @@ async function autoEnrollElderStudent(student) {
     const existing = await bsColl.findOne({
       $or: [
         { studentDbId: String(student._id) },
-        { phone: student.phone },
+
         { studentId: student.studentId },
       ].filter(Boolean),
     });
@@ -860,7 +860,6 @@ async function autoEnrollDiplomaStudent(student) {
     const existing = await bsColl.findOne({
       $or: [
         { studentDbId: String(student._id) },
-        { phone: student.phone },
         { studentId: student.studentId },
       ].filter(Boolean),
     });
@@ -3534,17 +3533,17 @@ app.post("/api/students/register/student", async (req, res) => {
     const studentsCollection = getCollection("students");
 
     // ─── Duplicate check ───
-    const existingStudent = await studentsCollection.findOne({
-      $or: [{ phone: phone }, { email: email }],
-    });
+    // const existingStudent = await studentsCollection.findOne({
+    //   $or: [{ phone: phone }, { email: email }],
+    // });
 
-    if (existingStudent) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
-      });
-    }
+    // if (existingStudent) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message:
+    //       "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
+    //   });
+    // }
 
     // ─── Full student document ───
     const numericPaid = Number(paidAmount) || 0;
@@ -5991,20 +5990,16 @@ app.post("/api/admin-students/create", async (req, res) => {
     const studentsCollection = getCollection("students");
 
     // Duplicate check
-    const duplicateQuery = [];
-    if (phone) duplicateQuery.push({ phone });
-    if (studentId) duplicateQuery.push({ studentId });
-    if (email) duplicateQuery.push({ email });
-
-    if (duplicateQuery.length > 0) {
+    // ✅ শুধু studentId unique থাকতে হবে (login key)
+    // phone/email repeat হতে পারবে — multiple enrollments allowed
+    if (studentId && String(studentId).trim()) {
       const existing = await studentsCollection.findOne({
-        $or: duplicateQuery,
+        studentId: String(studentId).trim(),
       });
       if (existing) {
         return res.status(400).json({
           success: false,
-          message:
-            "এই ফোন/স্টুডেন্ট আইডি/ইমেইল দিয়ে ইতিমধ্যে রেজিস্টার করা আছে!",
+          message: "এই স্টুডেন্ট আইডি ইতিমধ্যে ব্যবহৃত!",
         });
       }
     }
