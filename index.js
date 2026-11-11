@@ -3463,24 +3463,60 @@ app.get("/api/students/all", async (req, res) => {
   }
 });
 
-// REGISTER STUDENT
-// REGISTER STUDENT
-// REGISTER STUDENT
+// REGISTER STUDENT — FULL FIELDS (সব তথ্য save করবে)
 app.post("/api/students/register/student", async (req, res) => {
   try {
     console.log("📥 POST /api/students/register/student");
+    console.log("📝 Fields received:", Object.keys(req.body));
+
+    // ✅ সম্পূর্ণ destructuring — সব ফিল্ড তুলে নিচ্ছি
     const {
+      // Personal
       name,
-      email,
+      nationalId,
+      dateOfBirth,
+      age,
       phone,
+      email,
       password,
+      studentId: providedStudentId,
+
+      // Family
+      fatherName,
+      motherName,
+      guardianName,
+      guardianPhone,
+
+      // Address
+      presentAddress,
+      permanentAddress,
+
+      // Additional
+      gender,
+      occupation,
+      maritalStatus,
+
+      // Course
       course,
       department,
+
+      // Batch
       batchType,
       batchSchedule,
-      gender /* ... অন্যান্য ফিল্ড */,
+
+      // Payment
+      paymentScreenshot,
+      paymentMethod,
+      paymentType,
+      transactionId,
+      paymentRemarks,
+      paidAmount,
+      paymentStatus,
+      status,
+      admissionDate,
     } = req.body;
 
+    // ─── Validation ───
     if (!name || !email || !phone || !password || !course) {
       return res.status(400).json({
         success: false,
@@ -3488,15 +3524,16 @@ app.post("/api/students/register/student", async (req, res) => {
       });
     }
 
-    // ❌ ভুল লাইনটি এখান থেকে সরিয়ে দেওয়া হয়েছে: newStudent._id = result.insertedId;
-
     if (phone.length < 11) {
-      return res
-        .status(400)
-        .json({ success: false, message: "ফোন নম্বরটি ১১ ডিজিটের হতে হবে!" });
+      return res.status(400).json({
+        success: false,
+        message: "ফোন নম্বরটি ১১ ডিজিটের হতে হবে!",
+      });
     }
 
     const studentsCollection = getCollection("students");
+
+    // ─── Duplicate check ───
     const existingStudent = await studentsCollection.findOne({
       $or: [{ phone: phone }, { email: email }],
     });
@@ -3509,33 +3546,85 @@ app.post("/api/students/register/student", async (req, res) => {
       });
     }
 
-    // ... আপনার কোর্স অটো-ক্রিয়েট করার লজিক এখানে থাকবে ...
+    // ─── Full student document ───
+    const numericPaid = Number(paidAmount) || 0;
 
-    // ✅ নতুন Student ডকুমেন্ট তৈরি
     const newStudent = {
+      // 🆔 Identity
       name,
-      email,
+      email: email || "",
       phone,
       password,
+      studentId: providedStudentId || "",
+      nationalId: nationalId || "",
+      dobOrNid: nationalId || "", // compatibility
+      dateOfBirth: dateOfBirth || "",
+      age: age || "",
+
+      // 👨‍👩‍👧 Family
+      fatherName: fatherName || "",
+      motherName: motherName || "",
+      guardianName: guardianName || fatherName || "",
+      guardianPhone: guardianPhone || phone,
+
+      // 🏠 Address
+      presentAddress: presentAddress || "",
+      permanentAddress: permanentAddress || "",
+      address: presentAddress || "", // compatibility
+
+      // 👤 Additional
+      gender: gender || "",
+      occupation: occupation || "",
+      maritalStatus: maritalStatus || "",
+
+      // 📚 Course
       course,
       department: department || "",
+
+      // 🕐 Batch
       batchType: batchType || "",
       batchSchedule: batchSchedule || "",
-      gender: gender || "",
-      // ... অন্যান্য ফিল্ড
+
+      // 💳 Payment
+      paymentScreenshot: paymentScreenshot || "", // ⬅️ এটাই ছিল missing
+      paymentMethod: paymentMethod || "",
+      paymentType: paymentType || "",
+      transactionId: transactionId || "",
+      paymentRemarks: paymentRemarks || "",
+      paidAmount: numericPaid,
+      paymentStatus: paymentStatus || (numericPaid > 0 ? "Paid" : "Unpaid"),
+
+      // 🏁 Status
+      country: "BD",
       status: "Pending",
-      admissionDate: new Date().toISOString(),
+      admissionDate: admissionDate || new Date().toISOString(),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
     const result = await studentsCollection.insertOne(newStudent);
-    console.log("✅ Student registered:", result.insertedId);
 
-    // ✅ এখানে নতুন লাইনটি যোগ করুন:
+    console.log("✅ Student registered:", result.insertedId);
+    console.log(
+      "📸 Screenshot saved:",
+      newStudent.paymentScreenshot
+        ? `✅ Yes (${newStudent.paymentScreenshot.length} chars)`
+        : "❌ No (empty)",
+    );
+    console.log("💳 Payment:", {
+      method: newStudent.paymentMethod,
+      transactionId: newStudent.transactionId,
+      paidAmount: newStudent.paidAmount,
+    });
+
+    // ─── Auto-enroll (Elders / Diploma) ───
     newStudent._id = result.insertedId;
-    await autoEnrollElderStudent(newStudent);
-    await autoEnrollDiplomaStudent(newStudent);
+    try {
+      await autoEnrollElderStudent(newStudent);
+      await autoEnrollDiplomaStudent(newStudent);
+    } catch (enrollErr) {
+      console.warn("⚠️ Auto-enroll skipped:", enrollErr.message);
+    }
 
     res.status(201).json({
       success: true,
