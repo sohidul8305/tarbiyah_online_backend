@@ -1971,11 +1971,28 @@ app.post("/api/payment/sslcommerz/success", async (req, res) => {
       if (pendingData) {
         const studentsColl = getCollection("students");
 
+        // ✅ Fee calculation (SSL case)
+        const sd = pendingData.studentData || {};
+        const sslFee = Number(sd.courseFee) || 0;
+        const sslPaid = Number(amount) || 0;
+        const sslScholarship = Number(sd.scholarshipAmount) || 0;
+        const sslDue = Math.max(sslFee - sslScholarship - sslPaid, 0);
+
+        let sslPaymentStatus = "Unpaid";
+        if (sslFee > 0 && sslDue === 0 && sslPaid > 0) {
+          sslPaymentStatus = "Paid";
+        } else if (sslPaid > 0) {
+          sslPaymentStatus = "Partial";
+        }
+
         newStudent = {
-          ...pendingData.studentData,
+          ...sd,
           transactionId: tran_id,
-          paidAmount: amount,
-          paymentStatus: "Paid",
+          paidAmount: sslPaid,
+          courseFee: sslFee,
+          scholarshipAmount: sslScholarship,
+          dueAmount: sslDue,
+          paymentStatus: sslPaymentStatus,
           paymentMethod: "SSLCommerz",
           status: "Pending",
           admissionDate: new Date().toISOString(),
@@ -3542,12 +3559,14 @@ app.get("/api/students/all", async (req, res) => {
 });
 
 // REGISTER STUDENT — FULL FIELDS (সব তথ্য save করবে)
+// =============================================
+// ✅ REGISTER STUDENT — FULL FIELDS + PROPER PARTIAL PAYMENT
+// =============================================
 app.post("/api/students/register/student", async (req, res) => {
   try {
     console.log("📥 POST /api/students/register/student");
     console.log("📝 Fields received:", Object.keys(req.body));
 
-    // ✅ সম্পূর্ণ destructuring — সব ফিল্ড তুলে নিচ্ছি
     const {
       // Personal
       name,
@@ -3589,6 +3608,8 @@ app.post("/api/students/register/student", async (req, res) => {
       transactionId,
       paymentRemarks,
       paidAmount,
+      courseFee, // ⬅️ NEW
+      scholarshipAmount, // ⬅️ NEW
       paymentStatus,
       status,
       admissionDate,
@@ -3601,7 +3622,6 @@ app.post("/api/students/register/student", async (req, res) => {
         message: "নাম, ইমেইল, ফোন নম্বর, পাসওয়ার্ড এবং কোর্স আবশ্যক!",
       });
     }
-
     if (phone.length < 11) {
       return res.status(400).json({
         success: false,
@@ -3610,23 +3630,30 @@ app.post("/api/students/register/student", async (req, res) => {
     }
 
     const studentsCollection = getCollection("students");
+    if (!studentsCollection) {
+      return res.status(500).json({
+        success: false,
+        message: "Database collection not found!",
+      });
+    }
 
-    // ─── Duplicate check ───
-    // const existingStudent = await studentsCollection.findOne({
-    //   $or: [{ phone: phone }, { email: email }],
-    // });
+    // ─── ✅ Fee / Paid / Due / Status calculation ───
+    const numericFee = Number(courseFee) || 0;
+    const numericScholarship = Number(scholarshipAmount) || 0;
+    const numericPaid = Number(paidAmount) || 0;
+    const numericDue = Math.max(
+      numericFee - numericScholarship - numericPaid,
+      0,
+    );
 
-    // if (existingStudent) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message:
-    //       "এই ফোন নম্বর অথবা ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রেজিস্টার্ড করা আছে!",
-    //   });
-    // }
+    let computedPaymentStatus = "Unpaid";
+    if (numericFee > 0 && numericDue === 0 && numericPaid > 0) {
+      computedPaymentStatus = "Paid";
+    } else if (numericPaid > 0) {
+      computedPaymentStatus = "Partial"; // ⬅️ 2000/4000 হলে Partial
+    }
 
     // ─── Full student document ───
-    const numericPaid = Number(paidAmount) || 0;
-
     const newStudent = {
       // 🆔 Identity
       name,
@@ -3635,7 +3662,7 @@ app.post("/api/students/register/student", async (req, res) => {
       password,
       studentId: providedStudentId || "",
       nationalId: nationalId || "",
-      dobOrNid: nationalId || "", // compatibility
+      dobOrNid: nationalId || "",
       dateOfBirth: dateOfBirth || "",
       age: age || "",
 
@@ -3648,7 +3675,7 @@ app.post("/api/students/register/student", async (req, res) => {
       // 🏠 Address
       presentAddress: presentAddress || "",
       permanentAddress: permanentAddress || "",
-      address: presentAddress || "", // compatibility
+      address: presentAddress || "",
 
       // 👤 Additional
       gender: gender || "",
@@ -3663,14 +3690,19 @@ app.post("/api/students/register/student", async (req, res) => {
       batchType: batchType || "",
       batchSchedule: batchSchedule || "",
 
-      // 💳 Payment
-      paymentScreenshot: paymentScreenshot || "", // ⬅️ এটাই ছিল missing
+      // 💳 Payment — সব ফিল্ড
+      paymentScreenshot: paymentScreenshot || "",
       paymentMethod: paymentMethod || "",
       paymentType: paymentType || "",
       transactionId: transactionId || "",
       paymentRemarks: paymentRemarks || "",
+
+      // ✅ নতুন: fee calculation fields
       paidAmount: numericPaid,
-      paymentStatus: paymentStatus || (numericPaid > 0 ? "Paid" : "Unpaid"),
+      courseFee: numericFee,
+      scholarshipAmount: numericScholarship,
+      dueAmount: numericDue,
+      paymentStatus: computedPaymentStatus,
 
       // 🏁 Status
       country: "BD",
@@ -3684,29 +3716,25 @@ app.post("/api/students/register/student", async (req, res) => {
 
     console.log("✅ Student registered:", result.insertedId);
     console.log(
-      "📸 Screenshot saved:",
+      "📸 Screenshot:",
       newStudent.paymentScreenshot
-        ? `✅ Yes (${newStudent.paymentScreenshot.length} chars)`
-        : "❌ No (empty)",
+        ? `✅ Saved (${newStudent.paymentScreenshot.length} chars)`
+        : "❌ Empty",
     );
-    console.log("💳 Payment:", {
-      method: newStudent.paymentMethod,
-      transactionId: newStudent.transactionId,
-      paidAmount: newStudent.paidAmount,
-    });
+    console.log(
+      `💰 Fee: ${numericFee} | Paid: ${numericPaid} | Due: ${numericDue} | Status: ${computedPaymentStatus}`,
+    );
 
-    // ─── Auto-enroll (Elders / Diploma) ───
     newStudent._id = result.insertedId;
 
-    // ✅🔔 NEW: Enrollment notification create (সব admin dashboard এ দেখাবে)
+    // ✅🔔 Notification
     try {
       createEnrollmentNotification(newStudent);
     } catch (notifErr) {
       console.warn("⚠️ Notification skipped:", notifErr.message);
     }
 
-    await autoEnrollElderStudent(newStudent);
-    await autoEnrollDiplomaStudent(newStudent);
+    // ✅ Auto-enroll — একবার only
     try {
       await autoEnrollElderStudent(newStudent);
       await autoEnrollDiplomaStudent(newStudent);
@@ -3719,6 +3747,12 @@ app.post("/api/students/register/student", async (req, res) => {
       message: "রেজিস্ট্রেশন সফল!",
       studentId: result.insertedId,
       student: { ...newStudent, _id: result.insertedId },
+      payment: {
+        courseFee: numericFee,
+        paid: numericPaid,
+        due: numericDue,
+        status: computedPaymentStatus,
+      },
     });
   } catch (error) {
     console.error("❌ Registration Error:", error);
