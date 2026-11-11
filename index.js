@@ -10,7 +10,79 @@ const STORE_PASSWD = process.env.SSLCOMMERZ_STORE_PASSWD;
 const IS_LIVE = process.env.SSLCOMMERZ_IS_LIVE === "true";
 const SSL_BASE = process.env.SSLCOMMERZ_BASE_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL;
+// =============================================
+// ✅ NOTIFICATIONS — JSON File Based (Global Enrollment Alerts)
+// এক department এ enroll → সব admin dashboard এ দেখাবে
+// =============================================
+const NOTIFICATIONS_FILE = path.join(__dirname, "notifications.json");
 
+if (!fs.existsSync(NOTIFICATIONS_FILE)) {
+  fs.writeFileSync(
+    NOTIFICATIONS_FILE,
+    JSON.stringify({ notifications: [] }, null, 2),
+  );
+  console.log("✅ notifications.json created");
+}
+
+function readNotifications() {
+  try {
+    return JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, "utf8"));
+  } catch {
+    return { notifications: [] };
+  }
+}
+
+function writeNotifications(data) {
+  fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(data, null, 2));
+}
+
+// ✅ Helper: নতুন enrollment এ notification create করে
+function createEnrollmentNotification(student) {
+  try {
+    const data = readNotifications();
+    if (!data.notifications) data.notifications = [];
+
+    const courseName = student.course || "a course";
+    const deptName = student.department || "Unknown Department";
+
+    const notification = {
+      _id: "notif_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+      type: "enrollment",
+      title: "🎓 New Enrollment",
+      message: `${student.name || "A student"} enrolled in ${courseName}`,
+      // Detail info (for dashboard)
+      studentName: student.name || "",
+      studentId: student.studentId || "",
+      studentDbId: String(student._id || ""),
+      phone: student.phone || "",
+      email: student.email || "",
+      course: courseName,
+      department: deptName,
+      batchType: student.batchType || "",
+      batchSchedule: student.batchSchedule || "",
+      gender: student.gender || "",
+      // ✅ Global — সব department dashboard এ দেখাবে
+      isGlobal: true,
+      // ✅ Per-admin read tracking (admin email list)
+      readBy: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    data.notifications.unshift(notification); // newest first
+
+    // ✅ সর্বোচ্চ ৫০০টা রাখি
+    if (data.notifications.length > 500) {
+      data.notifications = data.notifications.slice(0, 500);
+    }
+
+    writeNotifications(data);
+    console.log("🔔 Notification created:", notification.message);
+    return notification;
+  } catch (err) {
+    console.error("❌ Notification create error:", err.message);
+    return null;
+  }
+}
 // =============================================
 // ✅ TEACHER PROFILE — JSON File Based
 // =============================================
@@ -1916,7 +1988,14 @@ app.post("/api/payment/sslcommerz/success", async (req, res) => {
           { tran_id },
           { $set: { status: "Completed" } },
         );
+        // ✅🔔 NEW: SSL payment দিয়েও enroll করলে notification
+        try {
+          createEnrollmentNotification(newStudent);
+        } catch (notifErr) {
+          console.warn("⚠️ Notification skipped:", notifErr.message);
+        }
 
+        console.log("✅ New student saved:", newStudent.name);
         console.log("✅ New student saved:", newStudent.name);
         console.log("🏛️ Department:", newStudent.department);
       }
@@ -3618,6 +3697,16 @@ app.post("/api/students/register/student", async (req, res) => {
 
     // ─── Auto-enroll (Elders / Diploma) ───
     newStudent._id = result.insertedId;
+
+    // ✅🔔 NEW: Enrollment notification create (সব admin dashboard এ দেখাবে)
+    try {
+      createEnrollmentNotification(newStudent);
+    } catch (notifErr) {
+      console.warn("⚠️ Notification skipped:", notifErr.message);
+    }
+
+    await autoEnrollElderStudent(newStudent);
+    await autoEnrollDiplomaStudent(newStudent);
     try {
       await autoEnrollElderStudent(newStudent);
       await autoEnrollDiplomaStudent(newStudent);
@@ -13304,6 +13393,124 @@ app.use((req, res) => {
     success: false,
     message: `Route not found: ${req.method} ${req.url}`,
   });
+});
+
+// =============================================
+// ✅ NOTIFICATIONS API — সব department এর admin দেখবে
+// =============================================
+
+// ✅ GET all notifications
+app.get("/api/notifications/all", (req, res) => {
+  try {
+    const { adminEmail, department, limit } = req.query;
+    const data = readNotifications();
+    let notifications = data.notifications || [];
+
+    // ✅ সব department এর notification সবাই দেখবে (isGlobal)
+    // চাইলে department দিয়ে filter করা যাবে
+    if (department && department !== "All") {
+      const deptLower = String(department).toLowerCase().trim();
+      notifications = notifications.filter(
+        (n) =>
+          n.isGlobal === true ||
+          String(n.department || "")
+            .toLowerCase()
+            .trim() === deptLower,
+      );
+    }
+
+    // Read status per admin
+    const cleanEmail = adminEmail
+      ? String(adminEmail).toLowerCase().trim()
+      : "";
+
+    const enriched = notifications.map((n) => ({
+      ...n,
+      isRead: cleanEmail ? (n.readBy || []).includes(cleanEmail) : false,
+    }));
+
+    const lim = parseInt(limit) || 50;
+    const finalList = enriched.slice(0, lim);
+
+    res.json({
+      success: true,
+      total: enriched.length,
+      unread: enriched.filter((n) => !n.isRead).length,
+      notifications: finalList,
+    });
+  } catch (error) {
+    console.error("❌ Notifications fetch error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ Mark single notification as read
+app.put("/api/notifications/mark-read/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminEmail } = req.body;
+    if (!adminEmail) {
+      return res
+        .status(400)
+        .json({ success: false, message: "adminEmail required" });
+    }
+    const cleanEmail = String(adminEmail).toLowerCase().trim();
+
+    const data = readNotifications();
+    const idx = (data.notifications || []).findIndex((n) => n._id === id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, message: "Not found" });
+    }
+
+    const n = data.notifications[idx];
+    if (!n.readBy) n.readBy = [];
+    if (!n.readBy.includes(cleanEmail)) n.readBy.push(cleanEmail);
+
+    writeNotifications(data);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ Mark ALL as read (for specific admin)
+app.put("/api/notifications/mark-all-read", (req, res) => {
+  try {
+    const { adminEmail } = req.body;
+    if (!adminEmail) {
+      return res
+        .status(400)
+        .json({ success: false, message: "adminEmail required" });
+    }
+    const cleanEmail = String(adminEmail).toLowerCase().trim();
+
+    const data = readNotifications();
+    (data.notifications || []).forEach((n) => {
+      if (!n.readBy) n.readBy = [];
+      if (!n.readBy.includes(cleanEmail)) n.readBy.push(cleanEmail);
+    });
+    writeNotifications(data);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ Delete notification
+app.delete("/api/notifications/delete/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = readNotifications();
+    const before = (data.notifications || []).length;
+    data.notifications = (data.notifications || []).filter((n) => n._id !== id);
+    if (data.notifications.length === before) {
+      return res.status(404).json({ success: false, message: "Not found" });
+    }
+    writeNotifications(data);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // ✅ 404 HANDLER (এটি ফাইলের একদম শেষে থাকতে হবে)
