@@ -3706,7 +3706,8 @@ app.post("/api/students/register/student", async (req, res) => {
       paymentStatus: computedPaymentStatus,
 
       // 🏁 Status
-      country: "BD",
+      // 🏁 Status
+      country: country || "BD",
       status: "Pending",
       admissionDate: admissionDate || new Date().toISOString(),
       createdAt: new Date(),
