@@ -3613,6 +3613,7 @@ app.post("/api/students/register/student", async (req, res) => {
       paymentStatus,
       status,
       admissionDate,
+      country,
     } = req.body;
 
     // ─── Validation ───
@@ -8190,7 +8191,36 @@ app.get("/api/admission-report/all", async (req, res) => {
     });
 
     // ─── 6️⃣ Merge ───
-    let records = [...studentRecords, ...batchStudentRecords];
+    // ─── 6️⃣ Merge with DEDUPLICATION ───
+    // একই student students + batch_students দুই জায়গায় থাকলে
+    // শুধু students record রাখব (বেশি field আছে), batch_students duplicate বাদ দিব
+
+    const existingKeys = new Set();
+    studentRecords.forEach((r) => {
+      if (r.studentId)
+        existingKeys.add("sid:" + String(r.studentId).toLowerCase().trim());
+      if (r.phone)
+        existingKeys.add("ph:" + String(r.phone).replace(/\D/g, "").slice(-11));
+      if (r.email)
+        existingKeys.add("em:" + String(r.email).toLowerCase().trim());
+    });
+
+    const dedupedBatchStudents = batchStudentRecords.filter((r) => {
+      const keys = [];
+      if (r.studentId)
+        keys.push("sid:" + String(r.studentId).toLowerCase().trim());
+      if (r.parentPhone)
+        keys.push("ph:" + String(r.parentPhone).replace(/\D/g, "").slice(-11));
+      if (r.email) keys.push("em:" + String(r.email).toLowerCase().trim());
+      // যেকোনো identifier মিললে duplicate → বাদ
+      return !keys.some((k) => existingKeys.has(k));
+    });
+
+    let records = [...studentRecords, ...dedupedBatchStudents];
+
+    console.log(
+      `🔍 Dedupe: students=${studentRecords.length} + batch=${batchStudentRecords.length} → unique=${records.length} (removed ${batchStudentRecords.length - dedupedBatchStudents.length} duplicates)`,
+    );
 
     // ─── 7️⃣ Department filter ───
     if (department && department !== "All") {
