@@ -13586,6 +13586,125 @@ app.use((req, res) => {
   });
 });
 
+// ═══════════════════════════════════════════════════════
+// ✅ UPDATE STUDENT INFO (Admin Only)
+// ═══════════════════════════════════════════════════════
+app.patch("/api/students/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body || {};
+
+    const studentsColl = getCollection("students");
+    if (!studentsColl) {
+      return res
+        .status(500)
+        .json({ success: false, message: "DB not connected" });
+    }
+
+    // ── Allowlist — any other field will be ignored ──
+    const ALLOWED_FIELDS = [
+      "name",
+      "phone",
+      "email",
+      "country",
+      "nationalId",
+      "dateOfBirth",
+      "age",
+      "gender",
+      "maritalStatus",
+      "occupation",
+      "fatherName",
+      "motherName",
+      "guardianPhone",
+      "guardianName",
+      "presentAddress",
+      "permanentAddress",
+      "course",
+      "department",
+      "batchType",
+      "batchSchedule",
+      "courseFee",
+      "paidAmount",
+      "dueAmount",
+      "scholarshipAmount",
+      "paymentStatus",
+      "paymentMethod",
+      "paymentType",
+      "transactionId",
+      "paymentRemarks",
+      "status",
+    ];
+
+    const filtered = {};
+    Object.keys(updates).forEach((k) => {
+      if (ALLOWED_FIELDS.includes(k)) filtered[k] = updates[k];
+    });
+
+    if (Object.keys(filtered).length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No valid fields to update" });
+    }
+
+    filtered.updatedAt = new Date();
+
+    // ✅ Try by _id first, then by studentId as fallback
+    const { ObjectId } = require("mongodb");
+    let filter = {};
+    try {
+      filter = { _id: new ObjectId(id) };
+    } catch {
+      filter = { studentId: id };
+    }
+
+    let result = await studentsColl.updateOne(filter, { $set: filtered });
+
+    if (result.matchedCount === 0) {
+      result = await studentsColl.updateOne(
+        { studentId: id },
+        { $set: filtered },
+      );
+    }
+
+    if (result.matchedCount === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Student not found" });
+    }
+
+    // ✅ Auto-recalc due if fee/paid changed
+    if (
+      filtered.courseFee !== undefined ||
+      filtered.paidAmount !== undefined ||
+      filtered.scholarshipAmount !== undefined
+    ) {
+      const student = await studentsColl.findOne(filter);
+      if (student) {
+        const fee = Number(student.courseFee) || 0;
+        const paid = Number(student.paidAmount) || 0;
+        const sch = Number(student.scholarshipAmount) || 0;
+        const due = Math.max(fee - paid - sch, 0);
+        let paymentStatus = "Unpaid";
+        if (fee > 0 && due === 0) paymentStatus = "Paid";
+        else if (paid > 0) paymentStatus = "Partial";
+        await studentsColl.updateOne(filter, {
+          $set: { dueAmount: due, paymentStatus },
+        });
+      }
+    }
+
+    console.log(`✅ Student ${id} updated:`, Object.keys(filtered).join(", "));
+    return res.json({
+      success: true,
+      message: "Student information updated successfully",
+      updatedFields: Object.keys(filtered),
+    });
+  } catch (error) {
+    console.error("❌ Update student error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ✅ DIAGNOSTIC: Batch status check
 app.get("/api/debug/batch-diagnosis", (req, res) => {
   try {
@@ -13676,6 +13795,127 @@ app.use(errorHandler);
 const startServer = async () => {
   try {
     await connectDB();
+    // ═══════════════════════════════════════════════════════
+    // ✅ UPDATE STUDENT INFO (Admin Only)
+    // ═══════════════════════════════════════════════════════
+    app.patch("/api/students/update/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updates = req.body || {};
+
+        const studentsColl = getCollection("students");
+        if (!studentsColl) {
+          return res
+            .status(500)
+            .json({ success: false, message: "DB not connected" });
+        }
+
+        // ── Allowlist — other fields ignored ──
+        const ALLOWED_FIELDS = [
+          "name",
+          "phone",
+          "email",
+          "country",
+          "nationalId",
+          "dateOfBirth",
+          "age",
+          "gender",
+          "maritalStatus",
+          "occupation",
+          "fatherName",
+          "motherName",
+          "guardianPhone",
+          "guardianName",
+          "presentAddress",
+          "permanentAddress",
+          "course",
+          "department",
+          "batchType",
+          "batchSchedule",
+          "courseFee",
+          "paidAmount",
+          "dueAmount",
+          "scholarshipAmount",
+          "paymentStatus",
+          "paymentMethod",
+          "paymentType",
+          "transactionId",
+          "paymentRemarks",
+          "status",
+        ];
+
+        const filtered = {};
+        Object.keys(updates).forEach((k) => {
+          if (ALLOWED_FIELDS.includes(k)) filtered[k] = updates[k];
+        });
+
+        if (Object.keys(filtered).length === 0) {
+          return res
+            .status(400)
+            .json({ success: false, message: "No valid fields to update" });
+        }
+
+        filtered.updatedAt = new Date();
+
+        // Try by _id first, then studentId
+        const { ObjectId } = require("mongodb");
+        let filter = {};
+        try {
+          filter = { _id: new ObjectId(id) };
+        } catch {
+          filter = { studentId: id };
+        }
+
+        let result = await studentsColl.updateOne(filter, { $set: filtered });
+
+        if (result.matchedCount === 0) {
+          result = await studentsColl.updateOne(
+            { studentId: id },
+            { $set: filtered },
+          );
+        }
+
+        if (result.matchedCount === 0) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Student not found" });
+        }
+
+        // Auto-recalc due if fee/paid changed
+        if (
+          filtered.courseFee !== undefined ||
+          filtered.paidAmount !== undefined ||
+          filtered.scholarshipAmount !== undefined
+        ) {
+          const student = await studentsColl.findOne(filter);
+          if (student) {
+            const fee = Number(student.courseFee) || 0;
+            const paid = Number(student.paidAmount) || 0;
+            const sch = Number(student.scholarshipAmount) || 0;
+            const due = Math.max(fee - paid - sch, 0);
+            let paymentStatus = "Unpaid";
+            if (fee > 0 && due === 0) paymentStatus = "Paid";
+            else if (paid > 0) paymentStatus = "Partial";
+            await studentsColl.updateOne(filter, {
+              $set: { dueAmount: due, paymentStatus },
+            });
+          }
+        }
+
+        console.log(
+          `✅ Student ${id} updated:`,
+          Object.keys(filtered).join(", "),
+        );
+        return res.json({
+          success: true,
+          message: "Student information updated successfully",
+          updatedFields: Object.keys(filtered),
+        });
+      } catch (error) {
+        console.error("❌ Update student error:", error);
+        return res.status(500).json({ success: false, message: error.message });
+      }
+    });
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`🌐 URL: http://localhost:${PORT}`);
