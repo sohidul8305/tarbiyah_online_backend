@@ -2758,6 +2758,139 @@ const writeData = (data) => {
 // Import Database Connection (MongoDB)
 const { connectDB, getDB, getCollection, closeDB } = require("./config/db");
 
+// ═══════════════════════════════════════════════════════
+// ✅ PATCH — Update Student Info (Admin)
+// ═══════════════════════════════════════════════════════
+app.patch("/api/students/update/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body || {};
+
+    console.log("════════════════════════════════════════");
+    console.log("📥 PATCH /api/students/update/", id);
+    console.log("📝 Fields:", Object.keys(updates).join(", "));
+
+    const studentsColl = getCollection("students");
+    if (!studentsColl) {
+      console.log("❌ DB not connected");
+      return res
+        .status(500)
+        .json({ success: false, message: "DB not connected" });
+    }
+
+    const ALLOWED_FIELDS = [
+      "name",
+      "phone",
+      "email",
+      "country",
+      "nationalId",
+      "dateOfBirth",
+      "age",
+      "gender",
+      "maritalStatus",
+      "occupation",
+      "fatherName",
+      "motherName",
+      "guardianPhone",
+      "guardianName",
+      "presentAddress",
+      "permanentAddress",
+      "course",
+      "department",
+      "batchType",
+      "batchSchedule",
+      "courseFee",
+      "paidAmount",
+      "dueAmount",
+      "scholarshipAmount",
+      "paymentStatus",
+      "paymentMethod",
+      "paymentType",
+      "transactionId",
+      "paymentRemarks",
+      "status",
+    ];
+
+    const filtered = {};
+    Object.keys(updates).forEach((k) => {
+      if (ALLOWED_FIELDS.includes(k)) filtered[k] = updates[k];
+    });
+
+    if (Object.keys(filtered).length === 0) {
+      console.log("❌ No valid fields");
+      return res
+        .status(400)
+        .json({ success: false, message: "No valid fields to update" });
+    }
+
+    filtered.updatedAt = new Date();
+
+    const { ObjectId } = require("mongodb");
+    let filter = {};
+    try {
+      filter = { _id: new ObjectId(id) };
+    } catch {
+      filter = { studentId: id };
+    }
+
+    let result = await studentsColl.updateOne(filter, { $set: filtered });
+    console.log(
+      "🎯 Matched:",
+      result.matchedCount,
+      "Modified:",
+      result.modifiedCount,
+    );
+
+    if (result.matchedCount === 0) {
+      result = await studentsColl.updateOne(
+        { studentId: id },
+        { $set: filtered },
+      );
+      filter = { studentId: id };
+      console.log("🔄 Fallback by studentId — Matched:", result.matchedCount);
+    }
+
+    if (result.matchedCount === 0) {
+      console.log("❌ Student not found");
+      return res
+        .status(404)
+        .json({ success: false, message: "Student not found" });
+    }
+
+    // Auto-recalc due if fee/paid changed
+    if (
+      filtered.courseFee !== undefined ||
+      filtered.paidAmount !== undefined ||
+      filtered.scholarshipAmount !== undefined
+    ) {
+      const student = await studentsColl.findOne(filter);
+      if (student) {
+        const fee = Number(student.courseFee) || 0;
+        const paid = Number(student.paidAmount) || 0;
+        const sch = Number(student.scholarshipAmount) || 0;
+        const due = Math.max(fee - paid - sch, 0);
+        let paymentStatus = "Unpaid";
+        if (fee > 0 && due === 0) paymentStatus = "Paid";
+        else if (paid > 0) paymentStatus = "Partial";
+        await studentsColl.updateOne(filter, {
+          $set: { dueAmount: due, paymentStatus },
+        });
+        console.log("💰 Due recalc:", { due, paymentStatus });
+      }
+    }
+
+    console.log("✅ Student updated:", Object.keys(filtered).join(", "));
+    console.log("════════════════════════════════════════");
+    return res.json({
+      success: true,
+      message: "Student information updated successfully",
+      updatedFields: Object.keys(filtered),
+    });
+  } catch (error) {
+    console.error("❌ Update student error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
 // Import Routes
 const authRoutes = require("./routes/authRoutes");
 // const courseRoutes = require("./routes/courseRoutes"); // ❌ কমেন্ট করুন
