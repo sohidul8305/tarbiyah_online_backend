@@ -2761,6 +2761,9 @@ const { connectDB, getDB, getCollection, closeDB } = require("./config/db");
 // ═══════════════════════════════════════════════════════
 // ✅ PATCH — Update Student Info (Admin)
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// ✅ PATCH — Update Student Info (Robust Version)
+// ═══════════════════════════════════════════════════════
 app.patch("/api/students/update/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -2772,12 +2775,94 @@ app.patch("/api/students/update/:id", async (req, res) => {
 
     const studentsColl = getCollection("students");
     if (!studentsColl) {
-      console.log("❌ DB not connected");
+      console.log("❌ DB not connected — getCollection returned null");
       return res
         .status(500)
         .json({ success: false, message: "DB not connected" });
     }
 
+    // ─────────────────────────────────────────────
+    // Step 1: Find student by MULTIPLE methods
+    // ─────────────────────────────────────────────
+    const { ObjectId } = require("mongodb");
+    let existingStudent = null;
+    let matchedFilter = null;
+    let matchMethod = "";
+
+    // Method A: _id as ObjectId
+    try {
+      const objId = new ObjectId(id);
+      const found = await studentsColl.findOne({ _id: objId });
+      if (found) {
+        existingStudent = found;
+        matchedFilter = { _id: objId };
+        matchMethod = "_id (ObjectId)";
+      }
+    } catch (e) {
+      console.log("⚠️ Not a valid ObjectId, skipping");
+    }
+
+    // Method B: _id as string
+    if (!existingStudent) {
+      const found = await studentsColl.findOne({ _id: id });
+      if (found) {
+        existingStudent = found;
+        matchedFilter = { _id: id };
+        matchMethod = "_id (string)";
+      }
+    }
+
+    // Method C: studentId
+    if (!existingStudent) {
+      const found = await studentsColl.findOne({ studentId: id });
+      if (found) {
+        existingStudent = found;
+        matchedFilter = { studentId: id };
+        matchMethod = "studentId";
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Step 2: If NOT found → show debug info
+    // ─────────────────────────────────────────────
+    if (!existingStudent) {
+      console.log(`❌ Student NOT found in 'students' collection by: ${id}`);
+
+      // Show sample of what's actually in the collection
+      try {
+        const samples = await studentsColl
+          .find({})
+          .project({ _id: 1, name: 1, studentId: 1 })
+          .limit(5)
+          .toArray();
+        console.log(
+          "📋 Sample _ids in 'students':",
+          samples.map((s) => ({
+            _id: String(s._id),
+            _idType: typeof s._id,
+            name: s.name,
+            studentId: s.studentId,
+          })),
+        );
+
+        const total = await studentsColl.countDocuments();
+        console.log("📊 Total students in collection:", total);
+      } catch (dbgErr) {
+        console.log("⚠️ Debug sample error:", dbgErr.message);
+      }
+
+      return res.status(404).json({
+        success: false,
+        message: `Student not found. Searched by _id (ObjectId), _id (string), and studentId = "${id}" in 'students' collection.`,
+      });
+    }
+
+    console.log(`✅ Student found via: ${matchMethod}`);
+    console.log(`👤 Name: ${existingStudent.name}`);
+
+    // ─────────────────────────────────────────────
+    // Step 3: Filter allowed fields
+    // ─────────────────────────────────────────────
     const ALLOWED_FIELDS = [
       "name",
       "phone",
@@ -2813,11 +2898,15 @@ app.patch("/api/students/update/:id", async (req, res) => {
 
     const filtered = {};
     Object.keys(updates).forEach((k) => {
-      if (ALLOWED_FIELDS.includes(k)) filtered[k] = updates[k];
+      if (ALLOWED_FIELDS.includes(k)) {
+        filtered[k] = updates[k];
+      } else {
+        console.log(`⚠️ Ignored field: ${k}`);
+      }
     });
 
     if (Object.keys(filtered).length === 0) {
-      console.log("❌ No valid fields");
+      console.log("❌ No valid fields in payload");
       return res
         .status(400)
         .json({ success: false, message: "No valid fields to update" });
@@ -2825,66 +2914,50 @@ app.patch("/api/students/update/:id", async (req, res) => {
 
     filtered.updatedAt = new Date();
 
-    const { ObjectId } = require("mongodb");
-    let filter = {};
-    try {
-      filter = { _id: new ObjectId(id) };
-    } catch {
-      filter = { studentId: id };
-    }
-
-    let result = await studentsColl.updateOne(filter, { $set: filtered });
+    // ─────────────────────────────────────────────
+    // Step 4: Update
+    // ─────────────────────────────────────────────
+    const result = await studentsColl.updateOne(matchedFilter, {
+      $set: filtered,
+    });
     console.log(
-      "🎯 Matched:",
-      result.matchedCount,
-      "Modified:",
-      result.modifiedCount,
+      `🎯 Update — Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`,
     );
 
-    if (result.matchedCount === 0) {
-      result = await studentsColl.updateOne(
-        { studentId: id },
-        { $set: filtered },
-      );
-      filter = { studentId: id };
-      console.log("🔄 Fallback by studentId — Matched:", result.matchedCount);
-    }
-
-    if (result.matchedCount === 0) {
-      console.log("❌ Student not found");
-      return res
-        .status(404)
-        .json({ success: false, message: "Student not found" });
-    }
-
-    // Auto-recalc due if fee/paid changed
+    // ─────────────────────────────────────────────
+    // Step 5: Auto-recalc fee (if fee/paid changed)
+    // ─────────────────────────────────────────────
     if (
       filtered.courseFee !== undefined ||
       filtered.paidAmount !== undefined ||
       filtered.scholarshipAmount !== undefined
     ) {
-      const student = await studentsColl.findOne(filter);
-      if (student) {
-        const fee = Number(student.courseFee) || 0;
-        const paid = Number(student.paidAmount) || 0;
-        const sch = Number(student.scholarshipAmount) || 0;
+      const fresh = await studentsColl.findOne(matchedFilter);
+      if (fresh) {
+        const fee = Number(fresh.courseFee) || 0;
+        const paid = Number(fresh.paidAmount) || 0;
+        const sch = Number(fresh.scholarshipAmount) || 0;
         const due = Math.max(fee - paid - sch, 0);
         let paymentStatus = "Unpaid";
         if (fee > 0 && due === 0) paymentStatus = "Paid";
         else if (paid > 0) paymentStatus = "Partial";
-        await studentsColl.updateOne(filter, {
+
+        await studentsColl.updateOne(matchedFilter, {
           $set: { dueAmount: due, paymentStatus },
         });
-        console.log("💰 Due recalc:", { due, paymentStatus });
+        console.log(`💰 Recalculated: due=${due}, status=${paymentStatus}`);
       }
     }
 
-    console.log("✅ Student updated:", Object.keys(filtered).join(", "));
+    console.log(`✅ Student updated: ${Object.keys(filtered).join(", ")}`);
     console.log("════════════════════════════════════════");
+
     return res.json({
       success: true,
       message: "Student information updated successfully",
       updatedFields: Object.keys(filtered),
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
     });
   } catch (error) {
     console.error("❌ Update student error:", error);
