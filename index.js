@@ -1479,8 +1479,11 @@ app.post("/api/teacher-profile/save", (req, res) => {
       console.log("════════════════════════════════════════");
       return res.json({
         success: true,
-        message: "✅ Profile updated successfully!",
-        profile: data.profiles[existingIndex],
+        message: "Student information updated successfully",
+        updatedFields: Object.keys(filtered),
+        matchedCount: result.matchedCount,
+        modifiedCount: result.modifiedCount,
+        student: updatedStudent, // ✅ NEW — return the actual updated data
       });
     }
 
@@ -2951,7 +2954,7 @@ app.patch("/api/students/update/:id", async (req, res) => {
 
     console.log(`✅ Student updated: ${Object.keys(filtered).join(", ")}`);
     console.log("════════════════════════════════════════");
-
+    const updatedStudent = await studentsColl.findOne(matchedFilter);
     return res.json({
       success: true,
       message: "Student information updated successfully",
