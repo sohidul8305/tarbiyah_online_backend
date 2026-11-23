@@ -16,6 +16,12 @@ const FRONTEND_URL = process.env.FRONTEND_URL;
 // =============================================
 const NOTIFICATIONS_FILE = path.join(__dirname, "notifications.json");
 
+// =============================================
+// ✅ PDF FILES SERVING (সঠিক জায়গা)
+// =============================================
+
+// PDF files serving
+
 if (!fs.existsSync(NOTIFICATIONS_FILE)) {
   fs.writeFileSync(
     NOTIFICATIONS_FILE,
@@ -11673,7 +11679,8 @@ app.delete("/api/invoices/delete/:id", async (req, res) => {
 });
 
 // Line ~26 এর কাছাকাছি (app.use(cors(...)) এর পরে)
-
+// ✅ PDF files serve (lecture sheets, etc.)
+app.use("/pdfs", express.static(path.join(__dirname, "pdfs")));
 // =============================================
 // ✅ AUTO-SEED: Elders Running Batches
 // Server start হলেই auto-create হবে
