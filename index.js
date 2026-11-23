@@ -3007,7 +3007,7 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// মডেলটি আপনার প্রজেক্ট অনুযায়ী সঠিক নাম দিন
+// মডেলটি আপনার প্রজেক্ট অনুযায়ী সঠিক
 
 // ✅ Student Support Status Check (JSON File Based)
 app.get("/api/support/status", async (req, res) => {
