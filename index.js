@@ -14586,7 +14586,7 @@ const startServer = async () => {
     process.exit(1);
   }
 };
-// ✅ DEBUG log (server start এর সময় দেখা যাবে)
+// ✅ DEBUG log (server start এর সময় দেখা যাব)
 console.log("════════════════════════════════════════");
 console.log("🔑 ENV Load Check:");
 console.log("   __dirname:", __dirname);
