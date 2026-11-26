@@ -14194,7 +14194,7 @@ startServer();
 startServer();
 
 // ✅ GRACEFUL SHUTDOWN
-// =============================================
+// ============================================
 process.on("SIGINT", async () => {
   console.log("\n🔄 Shutting down gracefully...");
   await closeDB();
