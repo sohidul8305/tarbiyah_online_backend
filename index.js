@@ -207,9 +207,14 @@ const DEPARTMENT_COURSES = {
   ],
   "Quran Studies": [
     "qaida nurani",
+    "qaida noorani",
     "nazera quran",
+    "najera quran",
     "hifzul quran",
     "hifz revision",
+    "hifzul revision",
+    "najera + hifz",
+    "one-to-one",
     "one to one quran revision",
   ],
   Alimiya: ["alimiyah for kids", "alimiyah program"],
@@ -703,6 +708,13 @@ async function autoEnrollElderStudent(student) {
   try {
     if (!student || !student.course) return;
 
+    // ✅ শুধু Elders department (department না থাকলে পুরনো নিয়মে course দেখে)
+    // যেমন Quran Studies-এর "Qaida Nurani" / "Najera Quran" যেন Elders batch-এ না যায়
+    const eldersDeptCheck = String(student.department || "")
+      .toLowerCase()
+      .trim();
+    if (eldersDeptCheck && eldersDeptCheck !== "elders") return;
+
     const bsColl = getCollection("batch_students");
     if (!bsColl) return;
 
@@ -949,7 +961,6 @@ async function autoEnrollDiplomaStudent(student) {
 
     // ২. Batch guarantee — না থাকলে তৈরি
     autoSeedDiplomaBatches();
-    autoSeedQuranStudiesBatches(); // ✅ নতুন
 
     // ৩. Running Diploma batch খুঁজে বের করা
     const data = readBatchesData();
@@ -1029,173 +1040,198 @@ async function autoEnrollDiplomaStudent(student) {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// ✅ AUTO-SEED: Quran Studies Running Batches
-// ═══════════════════════════════════════════════════════
-const QURAN_STUDIES_SEED_BASE = [
+// =============================================
+// ✅ AUTO-SEED: Quran Studies Running Batches (course অনুযায়ী ৮টি)
+// Idempotent — বার বার call করলেও duplicate হবে না
+// Admission form-এর course নাম আর এখানকার course নাম হুবহু এক রাখতে হবে
+// =============================================
+const QS_REGULAR_DAYS = "Regular Batch • Tue – Fri";
+const QS_OVERSEAS_DAYS = "Overseas Batch • Sat & Sun";
+
+const QURAN_STUDIES_BATCHES = [
   {
-    name: "Qaida Nurani (Regular)",
-    course: "Qaida Nurani",
-    aliases: [
-      "qaida nurani",
-      "qaida nuraniyah",
-      "qayidah nuraniyah",
-      "qaida noorani",
-      "qaidah nurani",
-      "qayidah nurani",
-      "qaidah nooraniya",
+    key: "qs-nurani-regular",
+    course: "Qaida Nurani (Regular)",
+    batchType: "regular",
+    days: QS_REGULAR_DAYS,
+    slots: [
+      "6:00 AM - 8:00 AM",
+      "6:00 PM - 8:00 PM (1st Batch)",
+      "6:00 PM - 8:00 PM (2nd Batch)",
+      "9:00 PM - 11:00 PM",
     ],
-    schedule: "📅 Regular Batch • Tue – Fri",
+    fee: 2000,
+    aliases: ["qaida noorani (regular)"],
   },
   {
-    name: "Nazera Quran (Regular)",
-    course: "Nazera Quran",
-    aliases: [
-      "nazera quran",
-      "nazera",
-      "najera quran",
-      "nazerah quran",
-      "nazera qur'an",
-      "najerah",
-    ],
-    schedule: "📅 Regular Batch • Tue – Fri",
+    key: "qs-nurani-overseas",
+    course: "Qaida Nurani (Overseas)",
+    batchType: "overseas",
+    days: QS_OVERSEAS_DAYS,
+    slots: ["2:00 PM - 4:00 PM", "7:00 PM - 9:00 PM"],
+    fee: 4000,
+    aliases: ["qaida noorani (overseas)"],
   },
   {
-    name: "Hifzul Quran (Regular)",
-    course: "Hifzul Quran",
-    aliases: [
-      "hifzul quran",
-      "hifz ul quran",
-      "hifz quran",
-      "hifz-ul-quran",
-      "hifz ul-quran",
+    key: "qs-najera-regular",
+    course: "Najera Quran (Regular)",
+    batchType: "regular",
+    days: QS_REGULAR_DAYS,
+    slots: [
+      "6:00 AM - 8:00 AM",
+      "6:00 PM - 8:00 PM (1st Batch)",
+      "6:00 PM - 8:00 PM (2nd Batch)",
+      "9:00 PM - 11:00 PM (1st Batch)",
+      "9:00 PM - 11:00 PM (2nd Batch)",
     ],
-    schedule: "📅 Regular Batch • Tue – Fri",
+    fee: 4000,
+    aliases: ["nazera quran (regular)"],
   },
   {
-    name: "Hifz Revision (Regular)",
-    course: "Hifz Revision",
-    aliases: ["hifz revision", "hifz revisions", "hifz rev"],
-    schedule: "📅 Regular Batch • Tue – Fri",
+    key: "qs-hifz-regular",
+    course: "Hifzul Quran (Regular)",
+    batchType: "regular",
+    days: QS_REGULAR_DAYS,
+    slots: ["6:00 AM - 8:00 AM", "6:00 PM - 8:00 PM", "9:00 PM - 11:00 PM"],
+    fee: 2000,
+    aliases: ["hifzul quran"],
   },
   {
-    name: "One to One Quran Revision (Regular)",
-    course: "One to One Quran Revision",
-    aliases: [
-      "one to one quran revision",
-      "one-to-one quran revision",
-      "1 to 1 quran revision",
-      "one to one quran",
-      "1-to-1 quran",
-    ],
-    schedule: "📅 Regular Batch • Tue – Fri",
+    key: "qs-hifz-revision-regular",
+    course: "Hifzul Revision (Regular)",
+    batchType: "regular",
+    days: QS_REGULAR_DAYS,
+    slots: ["6:00 AM - 8:00 AM", "6:00 PM - 8:00 PM", "9:00 PM - 11:00 PM"],
+    fee: 14000,
+    aliases: ["hifzul revision", "hifz revision"],
+  },
+  {
+    key: "qs-najera-hifz-overseas",
+    course: "Najera + Hifz (Overseas)",
+    batchType: "overseas",
+    days: QS_OVERSEAS_DAYS,
+    slots: ["2:00 PM - 4:00 PM", "7:00 PM - 9:00 PM"],
+    fee: 4000,
+    aliases: ["najera + hifz", "nazera quran (expatriate)"],
+  },
+  {
+    key: "qs-one-to-one-regular",
+    course: "One-to-One (Regular)",
+    batchType: "regular",
+    days: QS_REGULAR_DAYS,
+    slots: ["6:00 AM - 8:00 AM", "6:00 PM - 8:00 PM", "9:00 PM - 11:00 PM"],
+    fee: 5000,
+    aliases: ["one-to-one program (regular)"],
+  },
+  {
+    key: "qs-one-to-one-overseas",
+    course: "One-to-One (Overseas)",
+    batchType: "overseas",
+    days: QS_OVERSEAS_DAYS,
+    slots: ["2:00 PM - 4:00 PM", "7:00 PM - 9:00 PM"],
+    fee: 5000,
+    aliases: ["one-to-one program (overseas)"],
   },
 ];
+
+// "Qaida Noorani (Regular )" → "qaida noorani (regular)"
+function normQS(str) {
+  return String(str || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")")
+    .trim();
+}
+
+function findQuranStudiesSeed(courseName) {
+  const c = normQS(courseName);
+  if (!c) return null;
+  return (
+    QURAN_STUDIES_BATCHES.find(
+      (qb) =>
+        normQS(qb.course) === c || qb.aliases.some((a) => normQS(a) === c),
+    ) || null
+  );
+}
+
+function findQuranStudiesBatch(batches, seed) {
+  return (
+    (batches || []).find(
+      (b) =>
+        normQS(b.department) === "quran studies" &&
+        (b.seedKey === seed.key || normQS(b.course) === normQS(seed.course)),
+    ) || null
+  );
+}
 
 function autoSeedQuranStudiesBatches() {
   try {
     const data = readBatchesData();
     if (!data.batches) data.batches = [];
 
-    let createdCount = 0;
-    let updatedCount = 0;
-    let dedupedCount = 0;
+    let created = 0;
+    let updated = 0;
 
-    QURAN_STUDIES_SEED_BASE.forEach((rb) => {
-      const matches = data.batches.filter((b) => {
-        const bDept = String(b.department || "")
-          .toLowerCase()
-          .trim();
-        if (bDept !== "quran studies") return false;
+    QURAN_STUDIES_BATCHES.forEach((qb) => {
+      const schedule = `${qb.days} | ${qb.slots.join(" / ")}`;
+      const existing = findQuranStudiesBatch(data.batches, qb);
 
-        const bCourse = String(b.course || "")
-          .toLowerCase()
-          .trim();
-        const courseMatch = rb.aliases.some(
-          (alias) =>
-            bCourse === alias ||
-            bCourse.includes(alias) ||
-            alias.includes(bCourse),
-        );
-        if (!courseMatch) return false;
-
-        const bName = String(b.name || "")
-          .toLowerCase()
-          .trim();
-        const targetName = rb.name.toLowerCase().trim();
-        return bName === targetName || bName.includes(targetName);
-      });
-
-      if (matches.length === 0) {
+      if (!existing) {
         data.batches.push({
           _id:
             "QS_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
           id: Date.now() + Math.random(),
-          name: rb.name,
-          course: rb.course,
+          name: qb.course,
+          course: qb.course,
           department: "Quran Studies",
           gender: "All",
+          batchType: qb.batchType,
           students: 0,
-          schedule: rb.schedule,
+          schedule,
           teacher: "",
+          videoUrl: "",
           videos: [],
-          description: `Running batch for ${rb.course} (Quran Studies). ${rb.schedule}`,
+          description: `Running batch for ${qb.course} (${qb.days}). Time slots: ${qb.slots.join(", ")} (Bangladesh Time).`,
           status: "Active",
           isRunningBatch: true,
           isAutoCreated: true,
+          seedKey: qb.key,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
-        createdCount++;
-      } else if (matches.length > 1) {
-        const keepId = matches[0]._id;
-        data.batches = data.batches.filter(
-          (b) => b._id === keepId || !matches.some((m) => m._id === b._id),
-        );
-        dedupedCount += matches.length - 1;
+        created++;
+        return;
+      }
 
-        const kept = data.batches.find((b) => b._id === keepId);
-        if (kept) {
-          kept.name = rb.name;
-          kept.course = rb.course;
-          kept.isRunningBatch = true;
-          kept.status = "Active";
-          kept.schedule = rb.schedule;
-        }
-      } else {
-        const b = matches[0];
-        let changed = false;
-        if (b.isRunningBatch !== true) {
-          b.isRunningBatch = true;
-          changed = true;
-        }
-        if (b.status !== "Active") {
-          b.status = "Active";
-          changed = true;
-        }
-        if (!b.schedule || !b.schedule.includes("Tue – Fri")) {
-          b.schedule = rb.schedule;
-          changed = true;
-        }
-        if (!b.course) {
-          b.course = rb.course;
-          changed = true;
-        }
-        if (!b.department) {
-          b.department = "Quran Studies";
-          changed = true;
-        }
-        if (changed) {
-          b.updatedAt = new Date().toISOString();
-          updatedCount++;
-        }
+      // ✅ আগে থেকে থাকলে শুধু দরকারি flag ঠিক করা (admin-এর নাম/teacher বদলাবে না)
+      let changed = false;
+      if (existing.isRunningBatch !== true) {
+        existing.isRunningBatch = true;
+        changed = true;
+      }
+      if (existing.seedKey !== qb.key) {
+        existing.seedKey = qb.key;
+        changed = true;
+      }
+      if (!existing.schedule) {
+        existing.schedule = schedule;
+        changed = true;
+      }
+      if (!existing.batchType) {
+        existing.batchType = qb.batchType;
+        changed = true;
+      }
+      if (changed) {
+        existing.updatedAt = new Date().toISOString();
+        updated++;
       }
     });
 
-    if (createdCount > 0 || dedupedCount > 0 || updatedCount > 0) {
+    if (created > 0 || updated > 0) {
       writeBatchesData(data);
       console.log(
-        `✅ Quran Studies auto-seed: Created ${createdCount}, Updated ${updatedCount}, Deduped ${dedupedCount}`,
+        `✅ Quran Studies auto-seed: created ${created}, updated ${updated}`,
       );
     }
   } catch (err) {
@@ -1203,196 +1239,184 @@ function autoSeedQuranStudiesBatches() {
   }
 }
 
-// ✅ Find matching Quran Studies running batch
-function findRunningQuranStudiesBatch(courseName) {
-  if (!courseName) return null;
-  const c = String(courseName).toLowerCase().trim();
+// batchSchedule থেকে course → time slot
+// ১টা course: "6:00 AM - 8:00 AM"
+// ২টা course: "Qaida Nurani (Regular): 6:00 AM - 8:00 AM | Hifzul Quran (Regular): 9:00 PM - 11:00 PM"
+function parseQuranStudiesSchedule(batchSchedule, courseNames) {
+  const map = {};
+  const raw = String(batchSchedule || "").trim();
+  if (!raw) return map;
 
-  const COURSE_MAP = {
-    "qaida nurani": "Qaida Nurani",
-    "qaida nuraniyah": "Qaida Nurani",
-    "qayidah nuraniyah": "Qaida Nurani",
-    "qaida noorani": "Qaida Nurani",
-    "qaidah nurani": "Qaida Nurani",
-    "nazera quran": "Nazera Quran",
-    "najera quran": "Nazera Quran",
-    nazera: "Nazera Quran",
-    najerah: "Nazera Quran",
-    "hifzul quran": "Hifzul Quran",
-    "hifz quran": "Hifzul Quran",
-    "hifz revision": "Hifz Revision",
-    "one to one quran revision": "One to One Quran Revision",
-    "one-to-one quran revision": "One to One Quran Revision",
-  };
-
-  let matchedCourse = null;
-  for (const [key, val] of Object.entries(COURSE_MAP)) {
-    if (c === key || c.includes(key) || key.includes(c)) {
-      matchedCourse = val;
-      break;
-    }
+  if (courseNames.length === 1 && !raw.includes(" | ")) {
+    map[normQS(courseNames[0])] = raw;
+    return map;
   }
-  if (!matchedCourse) return null;
 
-  autoSeedQuranStudiesBatches();
-
-  const data = readBatchesData();
-  return (
-    (data.batches || []).find(
-      (b) =>
-        b.isRunningBatch === true &&
-        String(b.department || "").toLowerCase() === "quran studies" &&
-        String(b.course || "")
-          .toLowerCase()
-          .trim() === matchedCourse.toLowerCase(),
-    ) || null
-  );
+  raw.split(" | ").forEach((part) => {
+    const idx = part.indexOf(": ");
+    if (idx === -1) return;
+    map[normQS(part.slice(0, idx))] = part.slice(idx + 2).trim();
+  });
+  return map;
 }
 
-// ═══════════════════════════════════════════════════════
-// ✅ AUTO-ENROLL: Quran Studies Student → Correct Batch
-// ═══════════════════════════════════════════════════════
+// =============================================
+// ✅ AUTO-ENROLL: Quran Studies student → course অনুযায়ী running batch
+// ২টা course নিলে দুই batch-এই যাবে
+// =============================================
 async function autoEnrollQuranStudiesStudent(student) {
   try {
     if (!student || !student.course) return;
 
-    const c = String(student.course).toLowerCase();
+    const dept = normQS(student.department);
+    if (dept && dept !== "quran studies") return;
 
-    // শুধু Quran Studies courses এর জন্য (Elders/Diploma হলে skip)
-    const qsCourseMatch =
-      c.includes("qaida nurani") ||
-      c.includes("qayidah nurani") ||
-      c.includes("qaida noorani") ||
-      c.includes("nazera quran") ||
-      c.includes("najera quran") ||
-      c.includes("hifzul quran") ||
-      c.includes("hifz quran") ||
-      c.includes("hifz revision") ||
-      c.includes("one to one quran") ||
-      c.includes("one-to-one quran");
+    const courseNames = String(student.course)
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
 
-    if (!qsCourseMatch) {
-      console.log(
-        "ℹ️ Not a Quran Studies course, skipping auto-enroll:",
-        student.name,
-      );
-      return;
-    }
+    const picked = courseNames
+      .map((name) => ({ name, seed: findQuranStudiesSeed(name) }))
+      .filter((x) => x.seed);
 
-    // ✅ Department check — শুধু Quran Studies এর জন্য
-    const sDept = String(student.department || "")
-      .toLowerCase()
-      .trim();
-    if (sDept && sDept !== "quran studies") {
-      console.log(
-        "ℹ️ Student is not in Quran Studies department, skipping:",
-        student.name,
-      );
+    if (picked.length === 0) {
+      if (dept === "quran studies") {
+        console.log(
+          "ℹ️ Quran Studies course batch-এর সাথে মেলেনি:",
+          student.name,
+          student.course,
+        );
+      }
       return;
     }
 
     const bsColl = getCollection("batch_students");
     if (!bsColl) return;
 
-    // 1. Already enrolled?
-    const existing = await bsColl.findOne({
-      $or: [
-        { studentDbId: String(student._id) },
-        { studentId: student.studentId },
-      ].filter(Boolean),
-    });
-
-    if (existing) {
-      console.log("⚠️ Quran Studies student already enrolled:", student.name);
-      return;
-    }
-
-    // 2. Ensure batches exist
     autoSeedQuranStudiesBatches();
-
-    // 3. Find matching batch
-    const targetBatch = findRunningQuranStudiesBatch(student.course);
-
-    if (!targetBatch) {
-      console.log(
-        "❌ No matching Quran Studies batch for:",
-        student.name,
-        "| course:",
-        student.course,
-      );
-      return;
-    }
-
-    // 4. Payment calculation
-    const fee = Number(student.courseFee) || 0;
-    const scholarship = Number(student.scholarshipAmount) || 0;
-    const paid = Number(student.paidAmount) || 0;
-    const due = Math.max(fee - scholarship - paid, 0);
-
-    // 5. Insert into batch_students
-    const newBatchStudent = {
-      batchId: String(targetBatch._id),
-      studentDbId: String(student._id),
-      name: student.name,
-      studentId:
-        student.studentId ||
-        student.username ||
-        `S-${Date.now().toString().slice(-5)}`,
-      phone: student.phone || "",
-      country: student.country || "BD",
-      course: targetBatch.course,
-      department: "Quran Studies",
-      gender: student.gender || "",
-      password: student.password || "",
-      scholarshipAmount: scholarship,
-      scholarshipNote: student.scholarshipNote || "",
-      courseFee: fee,
-      monthlyFee: Number(student.monthlyFee) || fee,
-      paidAmount: paid,
-      dueAmount: due,
-      paymentStatus: student.paymentStatus || "Unpaid",
-      paymentMethod: student.paymentMethod || "",
-      transactionId: student.transactionId || "",
-      notes: student.notes || "",
-      admissionDate: student.admissionDate || new Date().toISOString(),
-      status: "Active",
-      paidMonths:
-        paid > 0
-          ? [
-              {
-                _id: "pay_" + Date.now(),
-                month: new Date().toISOString().slice(0, 7),
-                amount: paid,
-                method: student.paymentMethod || "Cash",
-                note: "Initial payment",
-                paidAt: new Date().toISOString(),
-              },
-            ]
-          : [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    await bsColl.insertOne(newBatchStudent);
-
-    // 6. Update student count in batch
     const data = readBatchesData();
-    const b = data.batches.find(
-      (x) => String(x._id) === String(targetBatch._id),
+
+    const scheduleMap = parseQuranStudiesSchedule(
+      student.batchSchedule,
+      courseNames,
     );
-    if (b) {
-      b.students = (b.students || 0) + 1;
-      b.updatedAt = new Date().toISOString();
-      writeBatchesData(data);
+
+    const single = picked.length === 1;
+    let remainingPaid = Number(student.paidAmount) || 0;
+    let remainingScholarship = Number(student.scholarshipAmount) || 0;
+    const studentIdValue =
+      student.studentId ||
+      student.username ||
+      `S-${Date.now().toString().slice(-5)}`;
+
+    let changed = false;
+
+    for (const { name, seed } of picked) {
+      const targetBatch = findQuranStudiesBatch(data.batches, seed);
+      if (!targetBatch) {
+        console.log(`❌ Quran Studies batch পাওয়া যায়নি: ${seed.course}`);
+        continue;
+      }
+
+      // ✅ এই batch-এ আগে থেকেই আছে কিনা
+      const idChecks = [];
+      if (student._id) idChecks.push({ studentDbId: String(student._id) });
+      if (student.studentId) idChecks.push({ studentId: student.studentId });
+      if (idChecks.length > 0) {
+        const existing = await bsColl.findOne({
+          batchId: String(targetBatch._id),
+          $or: idChecks,
+        });
+        if (existing) {
+          console.log(
+            `⚠️ ${student.name} আগে থেকেই ${targetBatch.name} batch-এ আছে`,
+          );
+          continue;
+        }
+      }
+
+      // ✅ Fee ভাগ: ১টা course হলে পুরোটা, ২টা হলে course fee অনুযায়ী
+      const fee = single ? Number(student.courseFee) || 0 : seed.fee;
+      const scholarship = single
+        ? remainingScholarship
+        : Math.min(remainingScholarship, fee);
+      remainingScholarship -= scholarship;
+      const payable = Math.max(fee - scholarship, 0);
+      const paid = single ? remainingPaid : Math.min(remainingPaid, payable);
+      remainingPaid -= paid;
+      const due = Math.max(fee - scholarship - paid, 0);
+
+      let paymentStatus = student.paymentStatus || "Unpaid";
+      if (!single) {
+        paymentStatus =
+          fee > 0 && due === 0 && paid > 0
+            ? "Paid"
+            : paid > 0
+              ? "Partial"
+              : "Unpaid";
+      }
+
+      await bsColl.insertOne({
+        batchId: String(targetBatch._id),
+        studentDbId: student._id ? String(student._id) : "",
+        name: student.name,
+        studentId: studentIdValue,
+        phone: student.phone || "",
+        email: student.email || "",
+        country: student.country || "BD",
+        course: targetBatch.course,
+        department: "Quran Studies",
+        gender: student.gender || "",
+        batchType: seed.batchType,
+        batchSchedule: scheduleMap[normQS(name)] || "",
+        fatherName: student.fatherName || "",
+        guardianName: student.guardianName || "",
+        password: student.password || "",
+        scholarshipAmount: scholarship,
+        scholarshipNote: student.scholarshipNote || "",
+        courseFee: fee,
+        monthlyFee: single ? Number(student.monthlyFee) || fee : fee,
+        paidAmount: paid,
+        dueAmount: due,
+        paymentStatus,
+        paymentMethod: student.paymentMethod || "",
+        transactionId: student.transactionId || "",
+        notes: student.notes || "",
+        admissionDate: student.admissionDate || new Date().toISOString(),
+        status: "Active",
+        paidMonths:
+          paid > 0
+            ? [
+                {
+                  _id: "pay_" + Date.now() + "_" + seed.key,
+                  month: new Date().toISOString().slice(0, 7),
+                  amount: paid,
+                  method: student.paymentMethod || "Cash",
+                  note: "Initial payment",
+                  paidAt: new Date().toISOString(),
+                },
+              ]
+            : [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      targetBatch.students = (targetBatch.students || 0) + 1;
+      targetBatch.updatedAt = new Date().toISOString();
+      changed = true;
+
+      console.log(
+        `✅ Auto-enrolled ${student.name} in ${targetBatch.name} (Quran Studies)`,
+      );
     }
 
-    console.log(
-      `✅ Auto-enrolled ${student.name} in ${targetBatch.name} (Quran Studies)`,
-    );
+    if (changed) writeBatchesData(data);
   } catch (err) {
     console.error("❌ Quran Studies auto-enroll error:", err);
   }
 }
+
 // ✅ Extra helpers (future-proof, no crash)
 const FIXED_TEACHERS = [];
 const ATT_DATA_FILE = path.join(__dirname, "attendance_data.json");
@@ -2385,6 +2409,16 @@ app.post("/api/payment/sslcommerz/success", async (req, res) => {
           createEnrollmentNotification(newStudent);
         } catch (notifErr) {
           console.warn("⚠️ Notification skipped:", notifErr.message);
+        }
+
+        // ✅ SSL payment-এর পরেও Quran Studies batch-এ auto-enroll
+        try {
+          await autoEnrollQuranStudiesStudent(newStudent);
+        } catch (enrollErr) {
+          console.warn(
+            "⚠️ Quran Studies auto-enroll skipped:",
+            enrollErr.message,
+          );
         }
 
         console.log("✅ New student saved:", newStudent.name);
@@ -4321,7 +4355,7 @@ app.post("/api/students/register/student", async (req, res) => {
     try {
       await autoEnrollElderStudent(newStudent);
       await autoEnrollDiplomaStudent(newStudent);
-      await autoEnrollQuranStudiesStudent(newStudent); // ✅ নতুন
+      await autoEnrollQuranStudiesStudent(newStudent);
     } catch (enrollErr) {
       console.warn("⚠️ Auto-enroll skipped:", enrollErr.message);
     }
@@ -7741,6 +7775,7 @@ app.get("/api/batches/all", async (req, res) => {
     // ✅ ম্যাজিক ফিক্স: পেজ লোড হলেই চেক করবে ব্যাচ আছে কিনা, না থাকলে তৈরি করবে
     // autoSeedEldersBatches();
     autoSeedDiplomaBatches();
+    autoSeedQuranStudiesBatches();
     console.log("📥 GET /api/batches/all");
     const data = readBatchesData();
     let batches = (data.batches || []).sort(
@@ -7786,6 +7821,48 @@ app.get("/api/batches/all", async (req, res) => {
     res.status(200).json({ success: true, total: batches.length, batches });
   } catch (error) {
     console.error("❌ Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ এক ক্লিকে সব পুরোনো Quran Studies স্টুডেন্টকে course অনুযায়ী batch-এ যুক্ত করার API
+// GET /api/migrate/sync-quran-studies-students
+app.get("/api/migrate/sync-quran-studies-students", async (req, res) => {
+  try {
+    const studentsColl = getCollection("students");
+    const bsColl = getCollection("batch_students");
+    if (!studentsColl || !bsColl)
+      return res.status(500).json({ success: false, message: "DB error" });
+
+    autoSeedQuranStudiesBatches();
+
+    const before = await bsColl.countDocuments({ department: "Quran Studies" });
+    const students = await studentsColl.find({}).toArray();
+    let checked = 0;
+
+    for (const s of students) {
+      const dept = normQS(s.department);
+      if (dept && dept !== "quran studies") continue;
+      if (
+        !dept &&
+        !String(s.course || "")
+          .split(",")
+          .some((c) => findQuranStudiesSeed(c))
+      )
+        continue;
+      checked++;
+      await autoEnrollQuranStudiesStudent(s);
+    }
+
+    const after = await bsColl.countDocuments({ department: "Quran Studies" });
+    res.json({
+      success: true,
+      message: `${checked} জন Quran Studies student চেক করা হয়েছে, ${after - before}টি নতুন batch enrollment যোগ হয়েছে`,
+      checked,
+      enrolled: after - before,
+    });
+  } catch (error) {
+    console.error("❌ Quran Studies sync error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
