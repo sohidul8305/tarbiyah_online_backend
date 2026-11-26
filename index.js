@@ -14097,7 +14097,7 @@ const startServer = async () => {
             .json({ success: false, message: "Student not found" });
         }
 
-        // Auto-recalc due if fee/paid changed
+        // Auto-recalc due if fee/paid change
         if (
           filtered.courseFee !== undefined ||
           filtered.paidAmount !== undefined ||
