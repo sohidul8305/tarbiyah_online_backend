@@ -14158,7 +14158,7 @@ console.log("══════════════════════�
 
 startServer();
 
-// ✅ GRACEFUL SHUTDOWN
+// ✅ GRACEFUL SHUTD
 process.on("SIGINT", async () => {
   console.log("\n🔄 Shutting down gracefully...");
   await closeDB();
@@ -14193,7 +14193,7 @@ startServer();
 
 startServer();
 
-// ✅ GRACEFUL SHUTDOWN
+// ✅ GRACEFUL SHUTDO
 // ============================================
 process.on("SIGINT", async () => {
   console.log("\n🔄 Shutting down gracefully...");
