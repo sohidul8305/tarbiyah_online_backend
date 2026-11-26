@@ -14413,7 +14413,7 @@ app.get("/api/debug/batch-diagnosis", (req, res) => {
   }
 });
 
-// ✅ DEBUG: Every batch with its students
+// ✅ DEBUG: Every batch with its student
 app.get("/api/debug/batches-with-students", async (req, res) => {
   try {
     const batchesData = readBatchesData();
