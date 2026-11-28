@@ -14121,7 +14121,7 @@ app.use((req, res) => {
 });
 
 // =============================================
-// ✅ NOTIFICATIONS API — সব department এর admin দেখবে
+// ✅ NOTIFICATIONS API — সব department এর adm দেখবে
 // =============================================
 
 // ✅ GET all notifications
