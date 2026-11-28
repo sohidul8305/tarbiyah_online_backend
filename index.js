@@ -14132,7 +14132,7 @@ app.get("/api/notifications/all", (req, res) => {
     let notifications = data.notifications || [];
 
     // ✅ সব department এর notification সবাই দেখবে (isGlobal)
-    // চাইলে department দিয়ে filter করা যাবে
+    // চাইলে department দিয়ে filte করা যাবে
     if (department && department !== "All") {
       const deptLower = String(department).toLowerCase().trim();
       notifications = notifications.filter(
